@@ -6,7 +6,7 @@ clink-management,be.axa.pccorp.eservicing.clink.service.impl,BrioService,60,116,
 clink-management,be.axa.pccorp.eservicing.clink.service.impl,FolderAuditService,0,144,1,11,0,27,1,10,0,5
 clink-management,be.axa.pccorp.eservicing.clink.service.impl,AnswerService,16,446,20,32,2,106,20,13,0,7
 clink-management,be.axa.pccorp.eservicing.clink.service.impl,DocumentAuditService,0,92,0,6,0,20,0,7,0,4
-clink-management,be.axa.pccorp.eservicing.clink.service.impl,BrokerDocumentService,1492,4176,219,251,360,1077,181,154,21,71
+clink-management,be.axa.pccorp.eservicing.clink.service.impl,BrokerDocumentService,1423,4245,207,263,345,1092,174,161,20,72
 clink-management,be.axa.pccorp.eservicing.clink.service.impl,CourrierInTypeService,0,63,0,0,0,20,0,4,0,4
 clink-management,be.axa.pccorp.eservicing.clink.service.impl,SearchFolderService,477,0,30,0,97,0,23,0,8,0
 clink-management,be.axa.pccorp.eservicing.clink.service.impl,BrokerFolderService,538,991,69,57,128,232,52,33,3,19
@@ -23,5 +23,4 @@ clink-management,be.axa.pccorp.eservicing.clink.service.impl,LogOnMgtService,25,
 clink-management,be.axa.pccorp.eservicing.clink.service.impl,CommunicationRecordProcessService,8,352,1,11,4,87,1,14,0,9
 clink-management,be.axa.pccorp.eservicing.clink.service.type,SubstitutionAuditVo,61,15,0,0,16,7,8,4,8,4
 clink-management,be.axa.pccorp.eservicing.clink.management.configMessageSource,configMessagrSource,0,20,0,0,0,5,0,2,0,2
-
  
