@@ -3173,5 +3173,402 @@ class BrokerDocumentServiceTest {
         assertEquals("Attribution service error", exception.getMessage());
     }
 
+    @Test
+
+    void testAddDocumentsForDemandeOffre_attributionServiceException() throws Exception {
+
+        // Arrange
+
+        List<MultipartFile> documents = Arrays.asList(mockFile);
+
+        List<CriterionVo> criteria = createTestCriteria();
+
+        String myDemand = "Test demand";
+
+        ReportLabelVo reportLabelVo = createTestReportLabelVo();
+
+        String documentTypeCode = "51";
+
+        String concernLabel = "Test concern";
+
+        Date brokerResponseDate = new Date();
+
+        String brokerReference = "BROKER123";
+
+        boolean bMailAccount = false;
+
+        String mailAdress = "";
+
+        String docPath = "/test/path";
+
+        String domain = "SOUSIARD";
+
+        String fleetNumber = "";
+
+        String fleetNumberOfVehicle = "";
+
+        String fleetSector = "";
+
+        boolean bMailBroker = false;
+
+        String mailAdressBroker = "";
+
+        String producerReference = "PROD123";
+
+        // Setup basic mocks
+
+        DistributorInfo distributor = new DistributorInfo();
+
+        distributor.setDistributorId("DIST123");
+
+        distributor.setName("Test");
+
+        distributor.setFname("Distributor");
+
+        when(difAdapter.getDistributortByPAccId(anyString())).thenReturn(distributor);
+
+        // Setup attribution service to throw exception
+
+        when(gdAttributionRemoteServiceDao.getAttributionInfoFromGD(any(AttributionInputVo.class)))
+
+                .thenThrow(new BusinessException("Attribution service unavailable"));
+
+        // Act & Assert
+
+        BusinessException exception = assertThrows(BusinessException.class, () ->
+
+                brokerDocumentService.addDocumentsForDemandeOffre(
+
+                        validBrokerUserVo, documents, criteria, myDemand, reportLabelVo,
+
+                        documentTypeCode, concernLabel, brokerResponseDate, brokerReference,
+
+                        bMailAccount, mailAdress, docPath, domain, fleetNumber,
+
+                        fleetNumberOfVehicle, fleetSector, bMailBroker, mailAdressBroker,
+
+                        producerReference));
+
+        assertEquals("Attribution service unavailable", exception.getMessage());
+
+    }
+
+
+    @Test
+
+    void testGetDocumetTypeId_complexCriteriaCombinations() throws Exception {
+
+        Method method = BrokerDocumentService.class.getDeclaredMethod("getDocumetTypeId", List.class, String.class);
+
+        method.setAccessible(true);
+
+        // Test case 1: PE company type with producer account
+
+        List<CriterionVo> criteria1 = new ArrayList<>();
+
+        CriterionVo vo1 = new CriterionVo("2", "Company Type", "PE");
+
+        CriterionVo vo2 = new CriterionVo("PROD123", "Producer", "Test Producer");
+
+        criteria1.add(vo1);
+
+        criteria1.add(vo2);
+
+        String result1 = (String) method.invoke(brokerDocumentService, criteria1, "SOUSIARD");
+
+        assertEquals("51", result1);
+
+        // Test case 2: ME company type
+
+        List<CriterionVo> criteria2 = new ArrayList<>();
+
+        CriterionVo vo3 = new CriterionVo("3", "Company Type", "ME");
+
+        CriterionVo vo4 = new CriterionVo("14", "Product", "Test Product");
+
+        vo4.setDefaultSTypeDos("14");
+
+        vo4.setDefaultCorg("2");
+
+        criteria2.add(vo3);
+
+        criteria2.add(vo4);
+
+        String result2 = (String) method.invoke(brokerDocumentService, criteria2, "SOUSIARD");
+
+        assertEquals("51", result2);
+
+        // Test case 3: SOUSAUTO domain
+
+        List<CriterionVo> criteria3 = new ArrayList<>();
+
+        CriterionVo vo5 = new CriterionVo("2", "Company Type", "PE");
+
+        criteria3.add(vo5);
+
+        String result3 = (String) method.invoke(brokerDocumentService, criteria3, "SOUSAUTO");
+
+        assertEquals("738", result3);
+
+    }
+
+
+// ==================== PRIVATE METHOD COVERAGE GAPS ====================
+
+    @Test
+
+    void testGetRegionCode_noRegionFound() throws Exception {
+
+        Method method = BrokerDocumentService.class.getDeclaredMethod("getRegionCode", String.class);
+
+        method.setAccessible(true);
+
+        // Setup unit with no regions
+
+        Unit unit = mock(Unit.class);
+
+        when(unit.getOfficesPaGroupings()).thenReturn(new ArrayList<>());
+
+        when(difAdapter.getUnitByProducerAccountId(anyString())).thenReturn(unit);
+
+        String result = (String) method.invoke(brokerDocumentService, "PROD123");
+
+        assertNull(result);
+
+    }
+
+
+    @Test
+
+    void testBuildDocumentType_specialCases() throws Exception {
+
+        // Test the static buildDocumentType method through getDocumetTypeId
+
+        Method method = BrokerDocumentService.class.getDeclaredMethod("getDocumetTypeId", List.class, String.class);
+
+        method.setAccessible(true);
+
+        // Test various special cases that should return specific codes
+
+        List<CriterionVo> criteria = new ArrayList<>();
+
+        // Case 1: id0="2", id1="6" -> should return special code
+
+        criteria.add(new CriterionVo("2", "Q1", "A1"));
+
+        criteria.add(new CriterionVo("6", "Q2", "A2"));
+
+        String result = (String) method.invoke(brokerDocumentService, criteria, "SOUSIARD");
+
+        assertEquals("51", result); // Should return default for SOUSIARD
+
+        // Add more test cases for other special combinations...
+
+    }
+
+// ==================== EMAIL ERROR SCENARIOS ====================
+
+    @Test
+
+    void testSendMailDemandOffre_mailError() throws Exception {
+
+        Method method = BrokerDocumentService.class.getDeclaredMethod("sendMailDemandOffre",
+
+                boolean.class, boolean.class, BrokerUserVo.class, String.class, String.class, String.class, List.class);
+
+        method.setAccessible(true);
+
+        // Setup mail error
+
+        JavamailOutput mailOutput = new JavamailOutput();
+
+        mailOutput.setError("9999");
+
+        when(javaMailApi.sendMail(any(JavamailInput.class))).thenReturn(mailOutput);
+
+        // Setup broker user with valid email account
+
+        setupBrokerUserWithEmailAccount();
+
+        String result = (String) method.invoke(brokerDocumentService, true, false, validBrokerUserVo,
+
+                "test@example.com", "", "Test report", Arrays.asList(mockFile));
+
+        assertEquals("9999", result);
+
+    }
+
+    private void setupBrokerUserWithEmailAccount() {
+
+        Set<PointOfSaleMinType> pointOfSales = new HashSet<>();
+
+        PointOfSaleMinType pos = new PointOfSaleMinType();
+
+        pos.setAssociateIdPointOfSale("012345");
+
+        pos.setEmailAccount("valid@example.com");
+
+        pointOfSales.add(pos);
+
+        // Use reflection to set pointOfSales since it might be private
+
+        try {
+
+            Method setPointOfSalesMethod = BrokerUserVo.class.getDeclaredMethod("setPointOfSales", Set.class);
+
+            setPointOfSalesMethod.setAccessible(true);
+
+            setPointOfSalesMethod.invoke(validBrokerUserVo, pointOfSales);
+
+        } catch (Exception e) {
+
+            fail("Failed to setup broker user with email account: " + e.getMessage());
+
+        }
+
+        validBrokerUserVo.setSelectedPointOfSale("12345");
+
+    }
+
+// ==================== NULL AND EDGE CASE SCENARIOS ====================
+
+    @Test
+
+    void testAddDocumentsForTransferCourier_attestationWithEmptyDocuments() throws Exception {
+
+        // Arrange - For attestation, both documents and myDemand can be empty
+
+        String generalManager = "John Manager";
+
+        String generalManagerTel = "1234567890";
+
+        List<MultipartFile> documents = new ArrayList<>(); // Empty documents
+
+        String policeReference = "POL123456789";
+
+        String documentTypeCode = "219"; // Courrier In
+
+        String myDemand = ""; // Empty demand
+
+        ReportLabelVo reportLabelVo = createTestReportLabelVo();
+
+        Date brokerResponseDate = new Date();
+
+        String brokerReference = "BROKER123";
+
+        String folderTypeId = "2";
+
+        String typeCourrierId = "1"; // TYPE_COURRIER_ATTESTATION
+
+        String typeAttestationId = "1";
+
+        boolean bMailAccount = false;
+
+        String mailAdress = "";
+
+        String languagesAsked = "FR";
+
+        boolean bMailBroker = false;
+
+        String mailAdressBroker = "";
+
+        // Setup mocks
+
+        setupEssentialMocksForTransferCourier(policeReference, folderTypeId);
+
+        // Act - Should not throw UploadDemandOrDocListEmptyException for attestation
+
+        String[] result = brokerDocumentService.addDocumentsForTransferCourier(
+
+                generalManager, generalManagerTel, validBrokerUserVo, documents, policeReference,
+
+                documentTypeCode, myDemand, reportLabelVo, brokerResponseDate, brokerReference,
+
+                folderTypeId, typeCourrierId, typeAttestationId, bMailAccount, mailAdress,
+
+                languagesAsked, bMailBroker, mailAdressBroker);
+
+        // Assert
+
+        assertNotNull(result);
+
+    }
+
+// ==================== COMPLEX DOCUMENT TYPE SCENARIOS ====================
+
+    @Test
+
+    void testGetDocumetTypeId_complexCriteriaPaths() throws Exception {
+
+        Method method = BrokerDocumentService.class.getDeclaredMethod("getDocumetTypeId", List.class, String.class);
+
+        method.setAccessible(true);
+
+        // Test case: criteria with defaultSTypeDos = "14"
+
+        List<CriterionVo> criteria = new ArrayList<>();
+
+        CriterionVo criterion = new CriterionVo("3", "Question", "Answer");
+
+        criterion.setDefaultSTypeDos("14");
+
+        criterion.setDefaultCorg("2");
+
+        criteria.add(criterion);
+
+        String result = (String) method.invoke(brokerDocumentService, criteria, "SOUSIARD");
+
+        assertNotNull(result);
+
+        // Test case: SOUSAUTO with minimal criteria
+
+        List<CriterionVo> minimalCriteria = new ArrayList<>();
+
+        minimalCriteria.add(new CriterionVo("2", "Q1", "A1"));
+
+        String result2 = (String) method.invoke(brokerDocumentService, minimalCriteria, "SOUSAUTO");
+
+        assertEquals("738", result2);
+
+    }
+
+
+    @Test
+
+    void testGetGdAttribution_withFleetData() throws Exception {
+
+        // This tests the complex attribution logic with fleet data
+
+        Method method = BrokerDocumentService.class.getDeclaredMethod("getGdAttribution",
+
+                String.class, String.class, String.class, String.class, String.class,
+
+                String.class, String.class, String.class);
+
+        method.setAccessible(true);
+
+        // Setup attribution response
+
+        AttributionOutputVo attributionOutput = new AttributionOutputVo();
+
+        attributionOutput.setManagerForAttribution("123");
+
+        attributionOutput.setInboxForAttribution("INBOX123");
+
+        when(gdAttributionRemoteServiceDao.getAttributionInfoFromGD(any(AttributionInputVo.class)))
+
+                .thenReturn(attributionOutput);
+
+        Object result = method.invoke(brokerDocumentService,
+
+                "SOUSIARD", "FLEET123", "10|Ten Vehicles", "1|Public Sector",
+
+                "PROD123", "REG123", "2", "2");
+
+        assertNotNull(result);
+
+    }
+
+
 }
  
