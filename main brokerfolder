@@ -1,0 +1,875 @@
+package be.axa.pccorp.eservicing.clink.service.impl;
+
+import be.axa.pccorp.eservicing.clink.model.bo.DocumentAuditBO;
+import be.axa.pccorp.eservicing.clink.model.constants.Constants;
+import be.axa.pccorp.eservicing.clink.model.exception.BusinessException;
+import be.axa.corp.gdservices.webservice.published.service.gduser.GdUserNotFoundException;
+import be.axa.corp.gdservices.webservice.published.service.gduser.JBCException;
+import be.axa.corp.gdservices.webservice.published.type.common.DataParamPT;
+import be.axa.corp.gdservices.webservice.published.type.common.KeyValueElementPT;
+import be.axa.corp.gdservices.webservice.published.type.gdfolder.GdDocumentVoPT;
+import be.axa.pccorp.eservicing.clink.model.exception.ErrorCode;
+import be.axa.pccorp.eservicing.clink.model.exception.ExceptionCode;
+import be.axa.pccorp.eservicing.clink.model.util.LanguageUtils;
+import be.axa.pccorp.eservicing.clink.oracleadapter.dao.ServiceDao;
+import be.axa.pccorp.eservicing.clink.oracleadapter.repository.ServiceRepository;
+import be.axa.pccorp.eservicing.clink.restadapter.model.sitecore.InsuranceDocument;
+import be.axa.pccorp.eservicing.clink.service.IBrokerFolderService;
+import be.axa.pccorp.eservicing.clink.service.IDocumentAuditService;
+import be.axa.pccorp.eservicing.clink.service.IFolderAuditService;
+import be.axa.pccorp.eservicing.clink.service.IGeneralConditionCatalogService;
+import be.axa.pccorp.eservicing.clink.soapadapter.ex.BrokerFolderNotFoundException;
+import be.axa.pccorp.eservicing.clink.soapadapter.ex.FolderLockedException;
+import be.axa.pccorp.eservicing.clink.soapadapter.service.gd.IGdFolderRemoteServices;
+import be.axa.pccorp.eservicing.clink.soapadapter.service.gd.IGdUserRemoteServices;
+import be.axa.pccorp.eservicing.clink.soapadapter.type.*;
+import be.axa.pccorp.eservicing.clink.soapadapter.vo.BrokerContactPersonVo;
+import be.axa.pccorp.eservicing.clink.soapadapter.vo.BrokerFolderVo;
+import org.apache.commons.lang3.ArrayUtils;
+import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.lang3.Validate;
+import org.apache.commons.lang3.math.NumberUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+import org.springframework.util.CollectionUtils;
+
+import java.util.*;
+
+/**
+ * @author dmde025
+ */
+@Service
+public class BrokerFolderService implements IBrokerFolderService {
+
+    @Autowired
+    private IDocumentAuditService documentAuditService;
+
+    @Autowired
+    private IFolderAuditService folderAuditService;
+
+    @Autowired
+    private IGeneralConditionCatalogService gccServiceDao;
+
+    @Autowired
+    private IGdFolderRemoteServices gdFolderRemoteServicesDao;
+
+    private final Logger LOG = LogManager.getLogger(BrokerFolderService.class);
+    
+    private final static String  CONTACT_POINT_TYPE_INSURANCE_AGENT="14";
+    private final static String  CONTACT_POINT_TYPE_INSURANCE_PRODUCER="7";
+    public final static String  QUALITY_STATUS_CODE_04="04";
+    public final static String  QUALITY_STATUS_CODE_05="05";
+    
+    public final static String  ERROR_NO_BROKER = "brokerUserVo is null";
+    public final static String  ERROR_NO_BROKER_ID = "brokerUserVo.getUserId() is null";
+    public final static String  ERROR_NO_PRODUCER_ACCOUNT = "no producer account linked with broker";
+    public final static String  ERROR_NO_POLICY_REF = "policeReference is null";
+    public final static String  FOLDER = "folder ";
+    public final static String NOT_PORTFOLIO = " not in portfolio";
+
+    @Autowired
+    private ServiceRepository serviceDao;
+
+    @Autowired
+    private IGdUserRemoteServices gdUserRemoteServicesDao;
+
+    /**
+     * Adds the contact's person to the folder
+     * 
+     * @param folderVo
+     *            the folder to which the contact person must be added
+     * @param brokerFolderVo
+     *            the folder data from GD
+     * @param languageId
+     *            the language for the contact info
+     * @throws FeeOutServiceException
+     *             when something went wrong
+     */
+    private void addContactPersonToFolder(FolderVo folderVo, BrokerFolderVo brokerFolderVo, Integer languageId)
+          throws BusinessException,JBCException  {
+       try{
+          String Space = "=====================================\n";
+       //Class Modified for GD JBC Security project
+       String responsibleManId = brokerFolderVo.getResponsiblemanId();
+       String serviceCodeTeam = brokerFolderVo.getServiceCodeTeam();
+       String regionCodeProducer = brokerFolderVo.getRegionCodeProducer();
+
+       /*if (LOG.isDebugEnabled()) {
+          LOG.debug("responsibleManId=" + responsibleManId);
+          LOG.debug("serviceCodeTeam=" + serviceCodeTeam);
+          LOG.debug("regionCodeProducer=" + regionCodeProducer);
+       }*/
+
+       boolean userIdAvailable = StringUtils.isNotBlank(responsibleManId);
+       String adminFolder = null;
+       String adminMail = null;
+       String adminPhone = null;
+       String adminFax = null;
+
+       if (userIdAvailable) {
+          // get the userid based on the intervenient ID
+          Long intervenientId = Long.valueOf(responsibleManId);
+          DataParamPT interveniantData = gdUserRemoteServicesDao.findByIntervenientId(intervenientId);
+          String userIdResponsible ="";
+          userIdResponsible = getUserIdResponsible(interveniantData, userIdResponsible);
+
+
+          if (StringUtils.isBlank(userIdResponsible)) {
+             userIdAvailable = false;
+          } else {
+             BrokerContactPersonVo contactPerson = gdUserRemoteServicesDao.getPersonPropertiesbyUser3Pos(userIdResponsible);
+             if ("YES".equals(contactPerson.getDefaultContact())) {
+                LOG.error(Space);
+                LOG.error("Contact person created by default for <foldername> : \n");
+                LOG.error("To know BROKER see TB_FAOLDER_AUDIT \n");
+                //LOG.error(brokerFolderVo.getFoldername() + "\n");
+                LOG.error(Space);
+                //LOG.error("responsibleManId=" + responsibleManId + "\n");
+                //LOG.error("serviceCodeTeam=" + serviceCodeTeam + "\n");
+                //LOG.error("regionCodeProducer=" + regionCodeProducer + "\n");
+                LOG.error(Space);
+             }
+             adminFolder = contactPerson.getFullNameLastNameFirst(true);
+             adminMail = contactPerson.getEmailAddress();
+             adminPhone = contactPerson.getPhoneNo();
+             adminFax = contactPerson.getFaxNo();
+          }
+       }
+
+       // cannot put this as an "else" of the previous "if" because "userIdAvailable" is set inside the "if" too
+       boolean folderIsOffrePe = brokerFolderVo.isOfFolderType(BrokerFolderVo.FOLDER_TYPE_OFFRE_PE);
+       boolean folderIsSouscriptionPe = brokerFolderVo.isOfFolderType(BrokerFolderVo.FOLDER_TYPE_SOUSCRIPTION_PE);
+
+       if (!userIdAvailable && (folderIsOffrePe || folderIsSouscriptionPe)) {
+          ServiceDao service = null;
+          boolean serviceCodeTeamAvailable = StringUtils.isNotBlank(serviceCodeTeam);
+          boolean regionCodeProducerAvailable = StringUtils.isNotBlank(regionCodeProducer);
+
+          service = getService(languageId, serviceCodeTeamAvailable, folderIsOffrePe, serviceCodeTeam, service,
+                regionCodeProducerAvailable, regionCodeProducer);
+          //todo
+          if (service != null) {
+             adminFolder = service.getServiceName();
+             //adminMail = service.getEmailAddress();
+             adminPhone = service.getPhoneNumber();
+             //adminFax = service.getFaxNumber();
+          }
+       }
+       
+       if (adminFolder == null) {
+          adminFolder = "AXA Belgium";
+          LOG.error(Space);
+          LOG.error("Contact person created by default for <foldername> : \n");
+          LOG.error("To know BROKER see TB_FAOLDER_AUDIT \n");
+          //LOG.error(brokerFolderVo.getFoldername() + "\n");
+          LOG.error(Space);
+          //LOG.error("responsibleManId=" + responsibleManId + "\n");
+          //LOG.error("serviceCodeTeam=" + serviceCodeTeam + "\n");
+          //LOG.error("regionCodeProducer=" + regionCodeProducer + "\n");
+          LOG.error(Space);
+       }
+
+       folderVo.setAdminFolder(adminFolder);
+       folderVo.setAdminMail(adminMail);
+       folderVo.setAdminPhone(adminPhone);
+       folderVo.setAdminFax(adminFax);
+       }catch(BusinessException e){
+          throw new BusinessException(e);
+       }
+    }
+
+    private ServiceDao getService(Integer languageId, boolean serviceCodeTeamAvailable, boolean folderIsOffrePe,
+                             String serviceCodeTeam, ServiceDao service, boolean regionCodeProducerAvailable,
+                             String regionCodeProducer) {
+       if (serviceCodeTeamAvailable) {
+          if (folderIsOffrePe) {
+             // because it is an "OFFRE PE", we need to increment the allocation entity code (= serviceCodeTeam)
+             int codePrim = NumberUtils.toInt(serviceCodeTeam, -2);
+             ++codePrim;
+             serviceCodeTeam = Integer.toString(codePrim);
+          }
+
+          service = serviceDao.findByInboxCodeAndLanguage(serviceCodeTeam, Long.valueOf(languageId));
+       } else if (regionCodeProducerAvailable) {
+          service = serviceDao.selectServiceByRegionCodeAndLanguage(regionCodeProducer, Long.valueOf(languageId));
+       }
+       return service;
+    }
+
+    private static String getUserIdResponsible(DataParamPT interveniantData, String userIdResponsible) {
+       for(KeyValueElementPT keyValue: interveniantData.getKeyValueElementPTs()){
+          if(keyValue.getKey().equals("USERID")){
+             userIdResponsible =keyValue.getValue();
+             break;
+          }
+
+       }
+       return userIdResponsible;
+    }
+
+    /**
+     * @see be.axa.corp.feeservices.docmanagement.service.IBrokerFolderService#checkIfOfferIsTransfered(String)
+     */
+    public String checkIfOfferIsTransfered(String offerReference) throws BusinessException {
+       LOG.info("checkIfOfferIsTransfered(offerReference); " + offerReference);
+       try {
+          return gdFolderRemoteServicesDao.getFolderForAnOffer(offerReference);
+       } catch (BusinessException e) {
+          if(ErrorCode.WEBSERVICE_EXCEPTION.equals(e.getMessage())){
+             throw new BusinessException( ErrorCode.WS_EXCEPTION_CODE, e);
+          }
+          throw new BusinessException(e);
+       }
+    }
+
+    /**
+     * @see be.axa.corp.feeservices.docmanagement.service.IBrokerFolderService#retrieveCcgAnnexesByCcgId(be.axa.corp.feeservices.docmanagement.type.BrokerUserVo,
+     *      Long)
+     */
+    public List<InsuranceDocument> retrieveCcgAnnexesByCcgId(BrokerUserVo brokerUserVo, Map<String, String> gcMap) throws BusinessException {
+       try {
+          Locale locale = LanguageUtils.determineLocaleFromApplicationLanguage(brokerUserVo.getApplicationLanguage());
+          //List annexList = gccServiceDao.retrieveAnnexesByGcId(gcId, locale);
+          List<InsuranceDocument> annexList =  gccServiceDao.retrieveGcByReferences(gcMap, locale);
+          return annexList;
+       } catch (Exception e) {
+          throw new BusinessException(e.getMessage(), e);
+       }
+    }
+
+    /**
+     * @see be.axa.corp.feeservices.docmanagement.service.IBrokerFolderService#retrieveCcgForOneFolder(be.axa.corp.feeservices.docmanagement.type.BrokerUserVo,
+     *      String, String)
+     */
+    public List<InsuranceDocument> retrieveCcgForOneFolder(BrokerUserVo brokerUserVo, String folderReference, String cTypeRef)
+          throws BusinessException {
+
+       Validate.notNull(brokerUserVo, ERROR_NO_BROKER);
+       Validate.notNull(folderReference, "folderReference is null");
+       Validate.notNull(cTypeRef, "cTypeRef is null");
+       List<InsuranceDocument> gcList;
+
+       try {
+          // retrieve ccg "full reference" from IMS
+          List/* <String> */ccgFullReferenceList = gdFolderRemoteServicesDao.retrieveCcgReferenceForOneFolderFromIms(
+                brokerUserVo, folderReference, cTypeRef);
+
+          if (CollectionUtils.isEmpty(ccgFullReferenceList)) {
+             if (LOG.isDebugEnabled()) {
+                LOG.debug("gcList from IMS is Empty");
+             }
+             // return an empty list when nothing found in IMS
+             gcList = Collections.EMPTY_LIST;
+          } else {
+             if (LOG.isDebugEnabled()) {
+                LOG.debug("gcList List from IMS is not empty");
+             }
+             Locale locale = LanguageUtils.determineLocaleFromApplicationLanguage(brokerUserVo
+                   .getApplicationLanguage());
+             gcList = gccServiceDao.retrieveGcByReferences(ccgFullReferenceList, brokerUserVo.getUserId(), locale);
+          }
+       } catch (Exception e) {
+          throw new BusinessException(e.getMessage(), e);
+       }
+
+       return gcList;
+    }
+
+    public HashMap retrieveFolderDerscriptionListForFolderReferenceList(List<String> folderReferenceList)
+          throws BusinessException {
+       LOG.info("retrieveFolderDerscriptionListForFolderReferenceList(folderReferenceList);" + folderReferenceList);
+
+       Validate.notNull(folderReferenceList);
+
+       HashMap folderDescriptionMap = new HashMap();
+
+       try {
+          List folderDescriptionOutput = gdFolderRemoteServicesDao
+                .retrieveFolderDerscriptionListForFolderReferenceList(folderReferenceList);
+          LOG.debug("folderDescriptionOutput from GD= "+ folderDescriptionOutput);
+          for (int i = 0; i < folderDescriptionOutput.size(); i++) {
+             DataParamPT record = (DataParamPT) folderDescriptionOutput.get(i);
+             String folderId ="";
+             List valueFolder = new ArrayList();
+             for(KeyValueElementPT keyvalue:record.getKeyValueElementPTs() ){
+                if(keyvalue.getKey().equals("FOLDERNAME")){
+                   folderId = keyvalue.getValue();
+                   
+                }
+                if(keyvalue.getKey().equals("INSUREDNAME")){
+                   valueFolder.add(0, keyvalue.getValue());
+                   
+                }
+                if(keyvalue.getKey().equals("INSURANCEPRODNAME")){
+                   valueFolder.add(1, keyvalue.getValue());
+                   
+                }              
+                folderDescriptionMap.put(folderId, valueFolder);
+    }
+             }
+             /*if(record.getKeyValueElementPTs().indexOf("FOLDERNAME")!=-1 && record.getKeyValueElementPTs().indexOf("INSUREDNAME")!=-1 && record.getKeyValueElementPTs().indexOf("INSURANCEPRODNAME")!=-1 ){
+    
+             String folderId = (String) record.getKeyValueElementPTs().get(record.getKeyValueElementPTs().indexOf("FOLDERNAME")).getValue();
+             String insuredName = (String) record.getKeyValueElementPTs().get(record.getKeyValueElementPTs().indexOf("INSUREDNAME")).getValue();
+             String insuranceProdName = (String) record.getKeyValueElementPTs().get(record.getKeyValueElementPTs().indexOf("INSURANCEPRODNAME")).getValue();
+             List valueFolder = new ArrayList();
+             valueFolder.add(0, insuredName);
+             valueFolder.add(1, insuranceProdName);
+
+             folderDescriptionMap.put(folderId, valueFolder);
+}
+          }*/
+       } catch (Exception e) {
+          throw new BusinessException(e.getMessage(), e);
+       }
+
+       return folderDescriptionMap;
+    }
+    
+
+    public FolderVo retrieveFolderWithNonDeletedPublicDocuments(BrokerUserVo brokerUserVo, String folderReference,
+          String sessionId, boolean refreshImsData, String folderTypeId) throws BrokerFolderNotFoundException,
+          BusinessException, be.axa.corp.gdservices.webservice.published.service.gdfolder.JBCException, FolderLockedException {
+       LOG
+             .info("retrieveFolderWithNonDeletedPublicDocuments(brokerUserVo, folderReference, sessionId);" + brokerUserVo
+                   + ";"
+                   + folderReference
+                   + ";"
+                   + sessionId);
+
+       Validate.notNull(brokerUserVo, ERROR_NO_BROKER);
+       Validate.notNull(folderReference, "folderReference is null");
+
+       try {
+          // Call gd folder service to search the folder
+          List<BrokerFolderVo> folderSet = gdFolderRemoteServicesDao.searchFoldersByObjectNameWithNonDeletedPublicDocuments(brokerUserVo,
+                folderReference, refreshImsData, folderTypeId);
+
+          // Match the data in the folderVo
+          BrokerFolderVo folder = (BrokerFolderVo) folderSet.iterator().next();
+
+          /*if (LOG.isDebugEnabled()) {
+             LOG.debug("Response from IMS - FolderVo values :");
+             LOG.debug("Insured Name : " + folder.getInsuredname());
+             LOG.debug("Imsfolderstatus : "+folder.getImsfolderstatus());
+             LOG.debug("imsclaimnumber : "+folder.getImsclaimnumber());
+             LOG.debug("imsfolderstatusLabel : "+folder.getImsfolderstatusLabel());
+          }*/
+
+          Boolean folderLocked = folder.getLocked();
+
+          /*
+           * if (LOG.isDebugEnabled()) { LOG.debug("folderLocked=" + folderLocked); }
+           */
+
+          if (folderLocked.booleanValue()) {
+             throw new FolderLockedException();
+          }
+
+          // retrieve the producer numbers of the user from the cache
+          // the producer number are saved in cache when the user logged in
+
+          Set<String> prodNoSetForUserId=brokerUserVo.getProducerNumbersWithoutPointOfsale();
+       
+          
+
+          boolean equalProdNo = prodNoSetForUserId.contains(folder.getProducernumber());
+
+          if (LOG.isDebugEnabled()) {
+             //LOG.debug("producer number of the folder=" + folder.getProducernumber());
+             //LOG.debug("equalProdNo=" + equalProdNo);
+          }
+
+          if (!equalProdNo) {
+
+             if (!folder.getSubfoldertypeId().equals(Constants.POLICE_00054)) {
+                LOG.error("=======================================================================================\n");
+                //LOG.error("The broker " + brokerUserVo.getUserId() + " has no producer number defined");
+                LOG.error("The broker has no producer number defined");
+                //LOG.error("or " + folder.getProducernumber() + " is not contained in the following list" + prodNoSetForUserId.toString() + "\n");
+                LOG.error("or is not contained in the following list"+ "\n");
+                //LOG.error("Broker has accessed folder =  " + folder.getFoldername());
+                LOG.error("Broker has accessed folder");
+                LOG.error("=======================================================================================\n");
+                BusinessException e = new BusinessException();
+                e.setMessage(ErrorCode.ERROR_NO_PROD);
+                throw e;
+             }
+             
+          }
+          
+          if (LOG.isDebugEnabled()) {
+             LOG.info("prodNoSetForUserId=" + ArrayUtils.toString(prodNoSetForUserId));
+          }
+       
+          // Declare a folder object to return
+          FolderVo folderVo = new FolderVo();
+          addContactPersonToFolder(folderVo, folder, brokerUserVo.getApplicationLanguage());
+
+          folderVo.setFolderType(folder.getSubfoldertypeLabel());
+          folderVo.setGdSubFolderTypeId(folder.getSubfoldertypeId());
+
+          // Define if the folder is for 'Offre' or 'Police' (sousc. AP/IARD)
+          String[] policesValueFoldertype2 = { Constants.POLICE_00011,
+                Constants.POLICE_00012,
+                Constants.POLICE_00013,
+                Constants.POLICE_00014,
+                Constants.POLICE_00015,
+                Constants.POLICE_00035,
+                Constants.POLICE_00036,
+                Constants.POLICE_00037,
+                Constants.POLICE_00049 };
+          
+          Set policeSet = new HashSet(Arrays.asList(policesValueFoldertype2));
+          
+          /*
+          if (policeSet.contains(folder.getSubfoldertypeId())) {
+             folderVo.setPolice(true);
+          } else {
+             folderVo.setPolice(false);
+          }
+          */
+          if (folder.isOfFolderType(Integer.valueOf(Constants.DOMAIN_SOUSC_IARD_AP).intValue())) {
+          //if (folder.getGdFolderType().getFolderTypeId() == 2) {
+             if (policeSet.contains(String.valueOf(Integer.valueOf(folder.getSubfoldertypeId()).intValue()))) {
+                folderVo.setPolice(true);
+             } else {
+                folderVo.setPolice(false);
+             }
+          }
+
+          // Define if the folder is for 'Offre' or 'Police' (fleet)
+          // 51       --> offre
+          // 52 et 53 --> police
+          // 54       --> flotte (assimilé aujourd'hui à une police)
+          String[] policesValueFoldertype50 = { Constants.POLICE_00052,
+                Constants.POLICE_00053,
+                Constants.POLICE_00054,
+                Constants.POLICE_00062_SME,
+                Constants.POLICE_00063_SME,
+                Constants.POLICE_00064_SME };
+          
+          
+          policeSet = new HashSet(Arrays.asList(policesValueFoldertype50));
+
+          if (folder.isOfFolderType(Integer.valueOf(Constants.DOMAIN_SOUSC_AUTO).intValue())) {
+             if (policeSet.contains(String.valueOf(Integer.valueOf(folder.getSubfoldertypeId()).intValue()))) {
+                folderVo.setPolice(true);
+             } else {
+                folderVo.setPolice(false);
+             }
+          }
+
+          folderVo.setFolderStatusCode(FolderVo.FOLDER_STATUS_EN_COURS);
+          
+          folderVo.setCompanyType(folder.getCompanyType());
+          folderVo.setImsFolderLangID(folder.getImsFolderLangID());
+          folderVo.setCpackage(folder.getCpackage());
+          folderVo.setServiceCodeTeam(folder.getServiceCodeTeam());
+          folderVo.setRegionCodeProducer(folder.getRegionCodeProducer());
+          
+          folderVo.setCrisQSP1(folder.getCrisQSP1());
+          folderVo.setCrisQSP2(folder.getCrisQSP2());
+          folderVo.setCrisQSP3(folder.getCrisQSP3());
+          folderVo.setCrisQSP4(folder.getCrisQSP4());
+          folderVo.setCoas(folder.getCoas()); 
+          folderVo.setSwRC(folder.getSwRC());
+          folderVo.setSwDOM(folder.getSwDOM());
+          folderVo.setSwAP(folder.getSwAP());
+          folderVo.setSwPJ(folder.getSwPJ());
+
+          // Encore un truc pas possible : 118 est un code error pour dire OK. Funny !
+          if (folderVo.isPolice() && StringUtils.isNotBlank(folder.getImsfolderstatus())) {
+             if (FolderVo.FOLDER_STATUS_EN_VIGUEUR_118.equals(folder.getImsfolderstatus())
+                   ||
+                FolderVo.FOLDER_STATUS_EN_VIGUEUR_107.equals(folder.getImsfolderstatus())
+                   ||
+                FolderVo.FOLDER_STATUS_EN_VIGUEUR_108.equals(folder.getImsfolderstatus())) {
+                folderVo.setFolderStatusCode(FolderVo.FOLDER_STATUS_EN_COURS);
+                folderVo.setFolderStatusDate("");
+             } else {
+                folderVo.setFolderStatusCode(FolderVo.FOLDER_STATUS_RESILIE);
+                folderVo.setFolderStatusDate(folder.getImsfolderstatusdate()); // YYYMMDD
+             }
+          }
+          if ((!folderVo.isPolice()) && StringUtils.isNotBlank(folder.getImsfolderstatus())) {
+             if (FolderVo.FOLDER_STATUS_EN_VIGUEUR_118.equals(folder.getImsfolderstatus())
+                   ||
+                FolderVo.FOLDER_STATUS_EN_VIGUEUR_107.equals(folder.getImsfolderstatus())
+                   ||
+                FolderVo.FOLDER_STATUS_EN_VIGUEUR_108.equals(folder.getImsfolderstatus())) {
+                folderVo.setFolderStatusCode(FolderVo.FOLDER_STATUS_EN_COURS);
+                folderVo.setFolderStatusDate("");
+             } else {
+                folderVo.setFolderStatusCode(FolderVo.FOLDER_STATUS_RESILIE);
+                folderVo.setFolderStatusDate(folder.getImsfolderstatusdate()); // YYYMMDD
+             }
+          }
+          
+
+          folderVo.setInsuredName(folder.getInsuredname());
+          folderVo.setProductInsurance(folder.getInsuranceprodname());
+          folderVo.setProducerAccount(folder.getProducernumber());
+
+          // Here define the userid to use for the audit of read folder and document
+          // if user has been substituted, use the substituter userid
+          String userid = brokerUserVo.getUserId();;
+          
+          // Fleet
+          folderVo.setFleetNumber(folder.getFleetNumber());
+          folderVo.setGlobalPolicyCode(folder.getGlobalPolicyCode());
+          folderVo.setMotherProducerNumber(folder.getMotherProducerNumber());
+          folderVo.setSubtypeFleetFolder(folder.getSubtypeFleetFolder());
+
+          // treat the list of documents
+          List documentList = folder.getDocumentList();
+
+          // treat the list of documents
+          if (LOG.isDebugEnabled()) {
+             LOG.debug("documentList=" + ArrayUtils.toString(documentList));
+          }
+
+          this.mapListOfDocuments(documentList, folderVo, userid);
+
+          // TODO Maybe but the audit save in the facade
+          int folderType;
+          if (folder.isOfFolderType(2)) {
+             folderType = 2;
+          } else if (folder.isOfFolderType(50)) {
+             folderType = 50;
+          }
+       
+          //Cognizant code changes Demand 170684: C-Link : afficher liste des documents public dans détail sinistres    Start
+          else if (folder.isOfFolderType(3)) {
+             folderType = 3;
+          } else if (folder.isOfFolderType(1)) {
+             folderType = 1;
+          }
+
+          //Cognizant code changes Demand 170684: C-Link : afficher liste des documents public dans détail sinistres    End
+          
+          else {
+             String temp = "Test IF... ELSE IF... not complete (new foldertype managed by CLINK! ";
+             LOG.error(temp);
+             BusinessException ex =  new BusinessException();
+             ex.setMessage(temp);
+             throw ex;
+          }
+          
+          folderAuditService.saveConsultation(folder.getObjectId(), folder.getObjectName(), null, userid, null, folderType);
+
+          return folderVo;
+       } catch (be.axa.corp.gdservices.webservice.published.service.gdfolder.JBCException exc) {
+          throw new BrokerFolderNotFoundException(exc);
+       }catch(BusinessException e){
+          if(ErrorCode.WEBSERVICE_EXCEPTION.equals(e.getMessage())){
+             throw new BusinessException(ErrorCode.WS_EXCEPTION_CODE, e);
+          }
+          throw new BusinessException(e);
+       } catch (JBCException e1) {
+          throw new BusinessException(e1);
+       }
+    }
+
+    private void mapListOfDocuments(List documentList, FolderVo folderVo, String userid) {
+       if (!CollectionUtils.isEmpty(documentList)) {
+          for (Iterator iterator = documentList.iterator(); iterator.hasNext();) {
+             GdDocumentVoPT docVo =  (GdDocumentVoPT) iterator.next();
+             DocumentVo documentVo = new DocumentVo();
+             documentVo.setDocumentName(docVo.getDocumentname());
+             documentVo.setEntryDate(docVo.getEntrydate());
+             documentVo.setEntryHour(docVo.getEntryhour());
+             documentVo.setIdStatus(docVo.getStatusLabel());
+             documentVo.setType(docVo.getDocumenttypeLabelBroker());
+             documentVo.setObjectID(docVo.getObjectId());
+             documentVo.setImperativeDate(docVo.getImperativedate());
+             documentVo.setOriginCode(docVo.getOrigincode());
+
+             // verify if the document is already read
+             try {
+                DocumentAuditBO DocumentAuditBO = documentAuditService
+                      .retrieveConsultationByObjectIdAndUserId7Pos(docVo.getObjectId(), userid);
+
+                if (DocumentAuditBO == null) {
+                   documentVo.setReadDocument(false);
+                } else {
+                   documentVo.setReadDocument(true);
+                }
+             } catch (Exception e) {
+                // if exception put the document not read
+                documentVo.setReadDocument(false);
+             }
+
+             folderVo.addDocument(documentVo);
+          }
+       }
+    }
+    /**
+     *  Read a claim in IMS (folder type 3) and return data's to the client
+     * 
+     * @param brokerUserVo
+     * @param claimReference
+     * @param sessionId
+     * @param refreshImsData
+     * @param folderTypeId
+     * @return <FolderVo>
+     * @throws BrokerFolderNotFoundException
+     * @throws BusinessException
+     * @throws GdUserNotFoundException
+     * @throws FolderLockedException
+     */
+    public FolderVo retrieveClaimWithNonDeletedDocuments(BrokerUserVo brokerUserVo, String claimReference,
+          String sessionId, boolean refreshImsData, String folderTypeId) throws BrokerFolderNotFoundException,
+          BusinessException, be.axa.corp.gdservices.webservice.published.service.gdfolder.JBCException, FolderLockedException {
+
+       Validate.notNull(brokerUserVo, ERROR_NO_BROKER);
+       Validate.notNull(claimReference, "claimReference is null");
+       Validate.notNull(sessionId, "sessionId is null");
+
+       try {
+          // Call gd folder service to search the folder
+          List<BrokerFolderVo> folderSet = gdFolderRemoteServicesDao
+                .searchFoldersByObjectNameWithNonDeletedPublicDocuments(brokerUserVo,
+                 claimReference, refreshImsData, folderTypeId);
+
+          // Match the data in the folderVo
+          BrokerFolderVo folder = (BrokerFolderVo) folderSet.iterator().next();
+
+          // Declare a folder object to return
+          FolderVo folderVo = new FolderVo();
+          addContactPersonToFolder(folderVo, folder, brokerUserVo.getApplicationLanguage());
+
+          folderVo.setFolderType(folder.getSubfoldertypeLabel());
+          folderVo.setGdSubFolderTypeId(folder.getSubfoldertypeId());
+
+          folderVo.setInsuredName(folder.getInsuredname());
+          folderVo.setProductInsurance(folder.getInsuranceprodname());
+          folderVo.setProducerAccount(folder.getProducernumber());
+
+          // Here define the userid to use for the audit of read folder and document
+          // if user has been substituted, use the substituter userid
+          String userid = new String();
+          if (brokerUserVo.getRole().isRetrievePointOfSalesIds()) {
+             userid = brokerUserVo.getUserId();
+          } else {
+             userid = brokerUserVo.getSubstituter().getUserId();
+          }
+          
+          // Fleet
+          folderVo.setFleetNumber(folder.getFleetNumber());
+          folderVo.setGlobalPolicyCode(folder.getGlobalPolicyCode());
+          folderVo.setMotherProducerNumber(folder.getMotherProducerNumber());
+          folderVo.setSubtypeFleetFolder(folder.getSubtypeFleetFolder());
+          
+          // treat the list of documents
+          List documentList = folder.getDocumentList();
+
+          // treat the list of documents
+          this.mapListOfDocuments(documentList, folderVo, userid);
+          
+          return folderVo;
+          
+       } catch (be.axa.corp.gdservices.webservice.published.service.gdfolder.JBCException exc) {
+          throw new BrokerFolderNotFoundException(exc);
+       }catch(BusinessException e){
+          throw new BusinessException(e);
+       } catch (JBCException e1) {
+          throw new BusinessException(e1);
+       }
+    }
+
+    public FolderVo retrieveFolderWithoutDocuments(BrokerUserVo brokerUserVo, String policeReference,
+          String folderTypeId) throws BrokerFolderNotFoundException, BusinessException {
+       LOG.info("retrieveFolderWithoutDocuments(brokerUserVo, policeReference); " + brokerUserVo
+             + ";"
+             + policeReference);
+
+       Validate.notNull(brokerUserVo, ERROR_NO_BROKER);
+       Validate.isTrue(StringUtils.isNotBlank(brokerUserVo.getUserId()), ERROR_NO_BROKER_ID);
+       Validate.isTrue(StringUtils.isNotBlank(policeReference), ERROR_NO_POLICY_REF);
+
+       try {
+          List<BrokerFolderVo> folders = gdFolderRemoteServicesDao
+                .searchFoldersByObjectNameWithNonDeletedPublicDocuments(brokerUserVo,
+                policeReference, true, folderTypeId);
+
+          // Match the data in the folderVo
+          BrokerFolderVo folder = (BrokerFolderVo) folders.iterator().next();
+
+          FolderVo folderVo = new FolderVo();
+          addContactPersonToFolder(folderVo, folder, brokerUserVo.getApplicationLanguage());
+
+          folderVo.setFolderType(folder.getSubfoldertypeLabel());
+
+          // Define if the folder is for 'Offre' or 'Police'
+          String[] policesValue = { Constants.POLICE_00011,
+                Constants.POLICE_00012,
+                Constants.POLICE_00013,
+                Constants.POLICE_00014,
+                Constants.POLICE_00015,
+                Constants.POLICE_00035,
+                Constants.POLICE_00036,
+                Constants.POLICE_00037,
+                Constants.POLICE_00049 };
+          Set policeSet = new HashSet(Arrays.asList(policesValue));
+          /*
+          folderVo.setPolice(policeSet.contains(folder.getSubfoldertypeId()) ? true : false);
+          */
+          folderVo.setPolice(policeSet.contains(String.valueOf(Integer.valueOf(folder.getSubfoldertypeId()).intValue())) ? true : false);
+          
+          folderVo.setFolderStatusCode(FolderVo.FOLDER_STATUS_EN_COURS);
+
+          if (folderVo.isPolice() && StringUtils.isNotBlank(folder.getImsfolderstatus())) {
+             folderVo.setFolderStatusCode(FolderVo.FOLDER_STATUS_RESILIE);
+          }
+
+          folderVo.setInsuredName(folder.getInsuredname());
+          folderVo.setProductInsurance(folder.getInsuranceprodname());
+          folderVo.setProducerAccount(folder.getProducernumber());
+
+          return folderVo;
+       } catch (be.axa.corp.gdservices.webservice.published.service.gdfolder.JBCException exc) {
+          throw new BrokerFolderNotFoundException(exc);
+       } catch (Exception e) {
+          throw new BusinessException(e);
+       }
+
+    }
+    
+    /**
+     * @see be.axa.corp.feeservices.docmanagement.internal.bo.IBrokerFolderBo#retrieveFolderWithoutDocuments(BrokerUserVo,
+     *      String)
+     */
+    public Boolean validatePolicyWithBroker(BrokerUserVo brokerUserVo, String policeReference,
+          String folderTypeId) throws BrokerFolderNotFoundException, BusinessException {
+       /*LOG.info("retrieveFolderWithoutDocuments(brokerUserVo, policeReference); " + brokerUserVo
+             + ";"
+             + policeReference);*/
+
+       Validate.notNull(brokerUserVo, ERROR_NO_BROKER);
+       Validate.isTrue(StringUtils.isNotBlank(brokerUserVo.getUserId()), ERROR_NO_BROKER_ID);
+       Validate.isTrue(brokerUserVo.getProducerNumbers() != null && !brokerUserVo.getProducerNumbers().isEmpty(), ERROR_NO_PRODUCER_ACCOUNT);
+       Validate.isTrue(StringUtils.isNotBlank(policeReference), ERROR_NO_POLICY_REF);
+
+       try {
+
+          List folders = gdFolderRemoteServicesDao.searchFoldersByObjectNameWithoutDocuments(brokerUserVo,
+                policeReference, true, folderTypeId);
+          LOG.debug("size of folder" + (folders != null ? folders.size() : "No folder"));
+
+          BrokerFolderVo folder = null;
+          // Match the data in the folderVo
+          if (folders != null && !folders.isEmpty())
+          {
+              folder = (BrokerFolderVo) folders.iterator().next();
+          }
+          if (folder != null && folder.getProducernumber() != null) {
+             boolean isFolderInPortfolioBroker = brokerUserVo.getProducerNumbersWithoutPointOfsale()
+                   .contains(folder.getProducernumber());
+             //LOG.debug(folder.getProducernumber() + " " );
+             if (!isFolderInPortfolioBroker) {
+                // the folder is not in the portfolio of the broker
+
+                BrokerFolderNotFoundException e = new BrokerFolderNotFoundException(
+                      FOLDER + policeReference + NOT_PORTFOLIO);
+                throw e;
+             }
+          } else {
+             BrokerFolderNotFoundException e = new BrokerFolderNotFoundException(
+                   FOLDER + policeReference + NOT_PORTFOLIO);
+             throw e;
+          }
+          return true;
+       } catch (be.axa.corp.gdservices.webservice.published.service.gdfolder.JBCException exc) {
+          LOG.error(exc.getMessage(), exc);
+          throw new BrokerFolderNotFoundException(exc);
+       } catch (Exception e) {
+          LOG.error(e.getMessage(), e);
+          throw new BusinessException(e);
+       }
+
+    }
+
+    /**
+     */
+    public String retrieveInsuredNameWhenFolderExistAndIsInPortfolio(BrokerUserVo brokerUserVo, String policeReference,
+          String folderTypeId) throws BusinessException, BrokerFolderNotFoundException {
+       LOG.info("retrieveInsuredNameWhenFolderExistAndIsInPortfolio(brokerUserVo, policeReference); " + brokerUserVo
+             + ";"
+             + policeReference);
+
+       Validate.notNull(brokerUserVo, ERROR_NO_BROKER);
+       Validate.isTrue(StringUtils.isNotBlank(brokerUserVo.getUserId()), ERROR_NO_BROKER_ID);
+       Validate.isTrue(StringUtils.isNotBlank(policeReference), ERROR_NO_POLICY_REF);
+
+       try {
+          List folders = gdFolderRemoteServicesDao.searchFoldersByObjectNameWithoutDocuments(brokerUserVo,
+                policeReference, true, folderTypeId);
+
+          BrokerFolderVo folderVo = (BrokerFolderVo) folders.iterator().next();
+          boolean isFolderInPortfolioBroker = brokerUserVo.getProducerNumbers()
+                .contains(folderVo.getProducernumber());
+          if (!isFolderInPortfolioBroker) {
+             // the folder is not in the portfolio of the broker
+             BusinessException e = new BusinessException();
+             e.setMessage(FOLDER + policeReference + NOT_PORTFOLIO);
+             e.setCode(ExceptionCode.E052);
+             throw e;
+          }
+
+          return folderVo.getInsuredname();
+       } catch (be.axa.corp.gdservices.webservice.published.service.gdfolder.JBCException exc) {
+          throw new BrokerFolderNotFoundException(exc);
+       } catch (Exception e) {
+          throw new BusinessException(e);
+       }
+
+    }
+    
+    public void setDocumentAuditService(IDocumentAuditService documentAuditService) {
+       this.documentAuditService = documentAuditService;
+    }
+
+    public void setFolderAuditService(IFolderAuditService folderAuditService) {
+       this.folderAuditService = folderAuditService;
+    }
+
+    /**
+     * @param gccServiceDao
+     *            the gccServiceDao to set
+     */
+    public void setGccServiceDao(IGeneralConditionCatalogService gccServiceDao) {
+       this.gccServiceDao = gccServiceDao;
+    }
+
+    
+    /**
+     * @param serviceDao
+     *            the serviceDao to set
+     */
+    public void setServiceDao(ServiceRepository serviceDao) {
+       this.serviceDao = serviceDao;
+    }
+
+    
+
+    public IGdFolderRemoteServices getGdFolderRemoteServicesDao() {
+       return gdFolderRemoteServicesDao;
+    }
+
+    public void setGdFolderRemoteServicesDao(IGdFolderRemoteServices gdFolderRemoteServicesDao) {
+       this.gdFolderRemoteServicesDao = gdFolderRemoteServicesDao;
+    }
+
+    public IGdUserRemoteServices getGdUserRemoteServicesDao() {
+       return gdUserRemoteServicesDao;
+    }
+
+    public void setGdUserRemoteServicesDao(IGdUserRemoteServices gdUserRemoteServicesDao) {
+       this.gdUserRemoteServicesDao = gdUserRemoteServicesDao;
+    }
+
+}
+ 
