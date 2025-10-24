@@ -1,264 +1,113 @@
 @Test
 
-void testAddDocumentsForDemandeOffre_withFleetNumberProcessing() throws Exception {
+void testAddDocumentsForTransferCourier_folderNotInPortefeuille() throws Exception {
 
     // Arrange
 
+    String generalManager = "John Manager";
+
+    String generalManagerTel = "1234567890";
+
     List<MultipartFile> documents = Arrays.asList(mockFile);
 
-    List<CriterionVo> criteria = createTestCriteria();
+    String policeReference = "POL123456789";
 
-    String myDemand = "Test demand";
+    String documentTypeCode = "42";
+
+    String myDemand = "Test transfer demand";
 
     ReportLabelVo reportLabelVo = createTestReportLabelVo();
-
-    String documentTypeCode = "51";
-
-    String concernLabel = "Test concern";
 
     Date brokerResponseDate = new Date();
 
     String brokerReference = "BROKER123";
 
+    String folderTypeId = "2";
+
+    String typeCourrierId = "1";
+
+    String typeAttestationId = "1";
+
     boolean bMailAccount = false;
 
     String mailAdress = "";
 
-    String docPath = "/test/path";
-
-    String domain = "SOUSIARD";
-
-    String fleetNumber = "123456789012"; // 12-digit fleet number
-
-    String fleetNumberOfVehicle = "5|Five vehicles";
-
-    String fleetSector = "1|Public Sector";
+    String languagesAsked = "";
 
     boolean bMailBroker = false;
 
     String mailAdressBroker = "";
 
-    String producerReference = "PROD123";
+    // Setup folder that's not in broker's portefeuille
 
-    // Setup mocks for fleet scenario
+    BrokerFolderVo folderVo = mock(BrokerFolderVo.class);
 
-    setupMocksForDemandeOffreWithFleet();
+    when(folderVo.getProducernumber()).thenReturn("DIFFERENT123"); // Different from broker's producer numbers
 
-    // Act
+    when(folderVo.getInsuredname()).thenReturn("Test Insured");
 
-    String[] result = brokerDocumentService.addDocumentsForDemandeOffre(
+    GdFolderTypeVoPT gdFolderType = new GdFolderTypeVoPT();
 
-            validBrokerUserVo, documents, criteria, myDemand, reportLabelVo,
+    gdFolderType.setFolderTypeId(2);
 
-            documentTypeCode, concernLabel, brokerResponseDate, brokerReference,
+    when(folderVo.getGdFolderType()).thenReturn(gdFolderType);
 
-            bMailAccount, mailAdress, docPath, domain, fleetNumber,
+    List<BrokerFolderVo> folders = Arrays.asList(folderVo);
 
-            fleetNumberOfVehicle, fleetSector, bMailBroker, mailAdressBroker,
+    when(gdFolderRemoteServicesDao.searchFoldersByObjectNameWithoutDocuments(
 
-            producerReference);
+            any(), anyString(), anyBoolean(), anyString()))
 
-    // Assert
+            .thenReturn(folders);
 
-    assertNotNull(result);
+    // Setup DIF adapter
 
-    assertEquals(3, result.length);
+    DistributorInfo distributor = new DistributorInfo();
 
-}
+    distributor.setDistributorId("DIST123");
 
-private void setupMocksForDemandeOffreWithFleet() throws Exception {
-
-    setupBasicMocksForDemandeOffre();
-
-    // Setup attribution for fleet scenario
-
-    AttributionOutputVo attributionOutput = new AttributionOutputVo();
-
-    attributionOutput.setManagerForAttribution("123"); // Manager exists
-
-    attributionOutput.setInboxForAttribution(null); // No inbox - triggers flow exception
-
-    when(gdAttributionRemoteServiceDao.getAttributionInfoFromGD(any(AttributionInputVo.class)))
-
-            .thenReturn(attributionOutput);
-
-    setupCommunicationRecordMocks();
-
-}
-
-
- 
-org.mockito.exceptions.misusing.UnnecessaryStubbingException: 
-Unnecessary stubbings detected.
-Clean & maintainable test code requires zero unnecessary code.
-Following stubbings are unnecessary (click to navigate to relevant line of code):
-  1. -> at be.axa.pccorp.eservicing.clink.service.impl.BrokerDocumentServiceTest.setupBasicMocksForDemandeOffre(BrokerDocumentServiceTest.java:1009)
-  2. -> at be.axa.pccorp.eservicing.clink.service.impl.BrokerDocumentServiceTest.setupBasicMocksForDemandeOffre(BrokerDocumentServiceTest.java:1035)
-  3. -> at be.axa.pccorp.eservicing.clink.service.impl.BrokerDocumentServiceTest.setupBasicMocksForDemandeOffre(BrokerDocumentServiceTest.java:1037)
-  4. -> at be.axa.pccorp.eservicing.clink.service.impl.BrokerDocumentServiceTest.setupBasicMocksForDemandeOffre(BrokerDocumentServiceTest.java:1041)
-  5. -> at be.axa.pccorp.eservicing.clink.service.impl.BrokerDocumentServiceTest.setupBasicMocksForDemandeOffre(BrokerDocumentServiceTest.java:1045)
-  6. -> at be.axa.pccorp.eservicing.clink.service.impl.BrokerDocumentServiceTest.setupBasicMocksForDemandeOffre(BrokerDocumentServiceTest.java:1047)
-  7. -> at be.axa.pccorp.eservicing.clink.service.impl.BrokerDocumentServiceTest.setupBasicMocksForDemandeOffre(BrokerDocumentServiceTest.java:1065)
-  8. -> at be.axa.pccorp.eservicing.clink.service.impl.BrokerDocumentServiceTest.setupBasicMocksForDemandeOffre(BrokerDocumentServiceTest.java:1067)
-  9. -> at be.axa.pccorp.eservicing.clink.service.impl.BrokerDocumentServiceTest.setupBasicMocksForDemandeOffre(BrokerDocumentServiceTest.java:1069)
-Please remove unnecessary stubbings or use 'lenient' strictness. More info: javadoc for UnnecessaryStubbingException class.
-
- at org.mockito.junit.jupiter.MockitoExtension.afterEach(MockitoExtension.java:197)
- at java.base/java.util.ArrayList.forEach(ArrayList.java:1596)
- at java.base/java.util.ArrayList.forEach(ArrayList.java:1596)
-
-
-
-
-
-@Test
-
-void testMapSubmittedContentType_ioException() throws Exception {
-
-    // Arrange
-
-    List<MultipartFile> documents = Arrays.asList(mockFile);
-
-    List<CommunicationRecordAttachmentBO> communicationRecordAttachmentBOList = new ArrayList<>();
-
-    when(mockFile.getOriginalFilename()).thenReturn("test.pdf");
-
-    when(mockFile.getBytes()).thenThrow(new IOException("File read error"));
-
-    Method method = BrokerDocumentService.class.getDeclaredMethod("mapSubmittedContentType",
-
-            List.class, String.class, List.class);
-
-    method.setAccessible(true);
-
-    // Act & Assert
-
-    assertThrows(RuntimeException.class, () ->
-
-            method.invoke(brokerDocumentService, documents, "42", communicationRecordAttachmentBOList));
-
-}
-
-
- 
-org.opentest4j.AssertionFailedError: Unexpected exception type thrown, 
-Expected :class java.lang.RuntimeException
-Actual   :class java.lang.reflect.InvocationTargetException
-<Click to see difference>
-
-
- at org.junit.jupiter.api.AssertionFailureBuilder.build(AssertionFailureBuilder.java:151)
- at org.junit.jupiter.api.AssertThrows.assertThrows(AssertThrows.java:67)
- at org.junit.jupiter.api.AssertThrows.assertThrows(AssertThrows.java:35)
- at org.junit.jupiter.api.Assertions.assertThrows(Assertions.java:3128)
- at be.axa.pccorp.eservicing.clink.service.impl.BrokerDocumentServiceTest.testMapSubmittedContentType_ioException(BrokerDocumentServiceTest.java:3617)
- at java.base/java.lang.reflect.Method.invoke(Method.java:580)
- at java.base/java.util.ArrayList.forEach(ArrayList.java:1596)
- at java.base/java.util.ArrayList.forEach(ArrayList.java:1596)
-Caused by: java.lang.reflect.InvocationTargetException
- at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:118)
- at java.base/java.lang.reflect.Method.invoke(Method.java:580)
- at be.axa.pccorp.eservicing.clink.service.impl.BrokerDocumentServiceTest.lambda$testMapSubmittedContentType_ioException$39(BrokerDocumentServiceTest.java:3619)
- at org.junit.jupiter.api.AssertThrows.assertThrows(AssertThrows.java:53)
- ... 6 more
-Caused by: java.io.IOException: File read error
- at be.axa.pccorp.eservicing.clink.service.impl.BrokerDocumentService.mapSubmittedContentType(BrokerDocumentService.java:1145)
- at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:103)
- ... 9 more
-
-
-
-
-
-
- @Test
-
-void testRecordEnvelop_communicationRecordFailure() throws Exception {
-
-    Method method = BrokerDocumentService.class.getDeclaredMethod("recordEnvelop",
-
-            BrokerUserVo.class, ReportLabelVo.class, String.class, String.class,
-
-            String.class, String.class, List.class, String.class, Long.class,
-
-            RecordEnvelopeResponseBO.class);
-
-    method.setAccessible(true);
-
-    // Setup
-
-    BrokerUserVo brokerUserVo = new BrokerUserVo();
-
-    ReportLabelVo reportLabelVo = createTestReportLabelVo();
-
-    String documentTypeCode = "42";
-
-    String producerReference = "PROD123";
-
-    String submittedContentType = "76";
-
-    String report = "Test report";
-
-    List<CommunicationRecordAttachmentBO> communicationRecordAttachmentBOList = new ArrayList<>();
-
-    String envelopUUid = "ENV123";
-
-    Long uploadHistoryId = 1L;
-
-    RecordEnvelopeResponseBO recordEnvelopeResponseBO = null;
-
-    // Setup communication service to throw exception
-
-    when(communicationRecordProcessService.storeFiles(anyList(), anyString(), anyLong()))
-
-            .thenThrow(new BusinessException("CRM storage failed"));
+    when(difAdapter.getDistributortByPAccId(anyString())).thenReturn(distributor);
 
     // Act & Assert
 
     BusinessException exception = assertThrows(BusinessException.class, () ->
 
-            method.invoke(brokerDocumentService, brokerUserVo, reportLabelVo, documentTypeCode,
+            brokerDocumentService.addDocumentsForTransferCourier(
 
-                    producerReference, submittedContentType, report, communicationRecordAttachmentBOList,
+                    generalManager, generalManagerTel, validBrokerUserVo, documents, policeReference,
 
-                    envelopUUid, uploadHistoryId, recordEnvelopeResponseBO));
+                    documentTypeCode, myDemand, reportLabelVo, brokerResponseDate, brokerReference,
 
-    assertEquals("CRM storage failed", exception.getMessage());
+                    folderTypeId, typeCourrierId, typeAttestationId, bMailAccount, mailAdress,
+
+                    languagesAsked, bMailBroker, mailAdressBroker));
+
+    assertTrue(exception.getMessage().contains("not in portefeuille"));
 
 }
 
  
-org.opentest4j.AssertionFailedError: Unexpected exception type thrown, 
-Expected :class be.axa.pccorp.eservicing.clink.model.exception.BusinessException
-Actual   :class java.lang.reflect.InvocationTargetException
+org.opentest4j.AssertionFailedError: 
+Expected :true
+Actual   :false
 <Click to see difference>
 
 
  at org.junit.jupiter.api.AssertionFailureBuilder.build(AssertionFailureBuilder.java:151)
- at org.junit.jupiter.api.AssertThrows.assertThrows(AssertThrows.java:67)
- at org.junit.jupiter.api.AssertThrows.assertThrows(AssertThrows.java:35)
- at org.junit.jupiter.api.Assertions.assertThrows(Assertions.java:3128)
- at be.axa.pccorp.eservicing.clink.service.impl.BrokerDocumentServiceTest.testRecordEnvelop_communicationRecordFailure(BrokerDocumentServiceTest.java:3793)
+ at org.junit.jupiter.api.AssertionFailureBuilder.buildAndThrow(AssertionFailureBuilder.java:132)
+ at org.junit.jupiter.api.AssertTrue.failNotTrue(AssertTrue.java:63)
+ at org.junit.jupiter.api.AssertTrue.assertTrue(AssertTrue.java:36)
+ at org.junit.jupiter.api.AssertTrue.assertTrue(AssertTrue.java:31)
+ at org.junit.jupiter.api.Assertions.assertTrue(Assertions.java:183)
+ at be.axa.pccorp.eservicing.clink.service.impl.BrokerDocumentServiceTest.testAddDocumentsForTransferCourier_folderNotInPortefeuille(BrokerDocumentServiceTest.java:3956)
  at java.base/java.lang.reflect.Method.invoke(Method.java:580)
  at java.base/java.util.ArrayList.forEach(ArrayList.java:1596)
  at java.base/java.util.ArrayList.forEach(ArrayList.java:1596)
-Caused by: java.lang.reflect.InvocationTargetException
- at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:118)
- at java.base/java.lang.reflect.Method.invoke(Method.java:580)
- at be.axa.pccorp.eservicing.clink.service.impl.BrokerDocumentServiceTest.lambda$testRecordEnvelop_communicationRecordFailure$40(BrokerDocumentServiceTest.java:3795)
- at org.junit.jupiter.api.AssertThrows.assertThrows(AssertThrows.java:53)
- ... 6 more
-Caused by: BusinessException{code=null, message='CRM storage failed', origin='null', causes=null}
- at be.axa.pccorp.eservicing.clink.service.impl.CommunicationRecordProcessService.storeFiles(CommunicationRecordProcessService.java:121)
- at be.axa.pccorp.eservicing.clink.service.impl.BrokerDocumentService.recordEnvelop(BrokerDocumentService.java:498)
- at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:103)
- ... 9 more
 
 
+@Test
 
- @Test
-
-void testAddDocumentsForDemandeOffre_withSubstituter() throws Exception {
+void testAddDocumentsForDemandeOffre_nullRecordEnvelopeResponse() throws Exception {
 
     // Arrange
 
@@ -298,21 +147,207 @@ void testAddDocumentsForDemandeOffre_withSubstituter() throws Exception {
 
     String producerReference = "PROD123";
 
-    // Setup substituter
+    // Setup mocks but return null for recordEnvelopeResponseBO
 
-    BrokerUserVo substituter = new BrokerUserVo();
+    setupBasicMocksForDemandeOffre();
 
-    substituter.setUserId("SUB123");
+    when(communicationRecordProcessService.recordEnvelop(anyList(), anyString(), anyString(),
 
-    substituter.setFirstName("Sub");
+            anyString(), anyString(), anyString(), anyLong())).thenReturn(null);
 
-    substituter.setLastName("User");
+    // Act & Assert
 
-    validBrokerUserVo.setSubstituter(substituter);
+    BusinessException exception = assertThrows(BusinessException.class, () ->
 
-    // Setup mocks
+            brokerDocumentService.addDocumentsForDemandeOffre(
 
-    setupMocksForDemandeOffre();
+                    validBrokerUserVo, documents, criteria, myDemand, reportLabelVo,
+
+                    documentTypeCode, concernLabel, brokerResponseDate, brokerReference,
+
+                    bMailAccount, mailAdress, docPath, domain, fleetNumber,
+
+                    fleetNumberOfVehicle, fleetSector, bMailBroker, mailAdressBroker,
+
+                    producerReference));
+
+    assertTrue(exception.getMessage().contains("recordEnvelopeResponseBO in not found"));
+
+}
+ 
+org.opentest4j.AssertionFailedError: Unexpected exception type thrown, 
+Expected :class be.axa.pccorp.eservicing.clink.model.exception.BusinessException
+Actual   :class java.lang.NullPointerException
+<Click to see difference>
+
+
+ at org.junit.jupiter.api.AssertionFailureBuilder.build(AssertionFailureBuilder.java:151)
+ at org.junit.jupiter.api.AssertThrows.assertThrows(AssertThrows.java:67)
+ at org.junit.jupiter.api.AssertThrows.assertThrows(AssertThrows.java:35)
+ at org.junit.jupiter.api.Assertions.assertThrows(Assertions.java:3128)
+ at be.axa.pccorp.eservicing.clink.service.impl.BrokerDocumentServiceTest.testAddDocumentsForDemandeOffre_nullRecordEnvelopeResponse(BrokerDocumentServiceTest.java:4312)
+ at java.base/java.lang.reflect.Method.invoke(Method.java:580)
+ at java.base/java.util.ArrayList.forEach(ArrayList.java:1596)
+ at java.base/java.util.ArrayList.forEach(ArrayList.java:1596)
+Caused by: java.lang.NullPointerException: Cannot invoke "String.equals(Object)" because "inboxOtTypeId" is null
+ at be.axa.pccorp.eservicing.clink.service.impl.BrokerDocumentService.addDocumentsForDemandeOffre(BrokerDocumentService.java:388)
+ at be.axa.pccorp.eservicing.clink.service.impl.BrokerDocumentServiceTest.lambda$testAddDocumentsForDemandeOffre_nullRecordEnvelopeResponse$43(BrokerDocumentServiceTest.java:4314)
+ at org.junit.jupiter.api.AssertThrows.assertThrows(AssertThrows.java:53)
+ ... 6 more
+
+
+ @Test
+
+void testAddDocumentsForDemandeOffre_uploadCriteriaInvalidException() throws Exception {
+
+    // Arrange - Test when attribution returns null inbox (triggers UploadCriteriaInvalidException)
+
+    List<MultipartFile> documents = Arrays.asList(mockFile);
+
+    List<CriterionVo> criteria = createTestCriteria();
+
+    String myDemand = "Test demand";
+
+    ReportLabelVo reportLabelVo = createTestReportLabelVo();
+
+    String documentTypeCode = "51";
+
+    String concernLabel = "Test concern";
+
+    Date brokerResponseDate = new Date();
+
+    String brokerReference = "BROKER123";
+
+    boolean bMailAccount = false;
+
+    String mailAdress = "";
+
+    String docPath = "/test/path";
+
+    String domain = "SOUSIARD";
+
+    String fleetNumber = "";
+
+    String fleetNumberOfVehicle = "";
+
+    String fleetSector = "";
+
+    boolean bMailBroker = false;
+
+    String mailAdressBroker = "";
+
+    String producerReference = "PROD123";
+
+    // Setup attribution with null inbox and no flow exception
+
+    AttributionOutputVo attributionOutput = new AttributionOutputVo();
+
+    attributionOutput.setManagerForAttribution("0"); // No manager
+
+    attributionOutput.setInboxForAttribution(null); // No inbox - should trigger exception
+
+    when(gdAttributionRemoteServiceDao.getAttributionInfoFromGD(any(AttributionInputVo.class)))
+
+            .thenReturn(attributionOutput);
+
+    // Setup basic mocks to avoid NPE
+
+    DistributorInfo distributor = new DistributorInfo();
+
+    distributor.setDistributorId("DIST123");
+
+    when(difAdapter.getDistributortByPAccId(anyString())).thenReturn(distributor);
+
+    Unit unit = mock(Unit.class);
+
+    when(unit.getOfficesPaGroupings()).thenReturn(new ArrayList<>());
+
+    when(difAdapter.getUnitByProducerAccountId(anyString())).thenReturn(unit);
+
+    // Act & Assert
+
+    assertThrows(UploadCriteriaInvalidException.class, () ->
+
+            brokerDocumentService.addDocumentsForDemandeOffre(
+
+                    validBrokerUserVo, documents, criteria, myDemand, reportLabelVo,
+
+                    documentTypeCode, concernLabel, brokerResponseDate, brokerReference,
+
+                    bMailAccount, mailAdress, docPath, domain, fleetNumber,
+
+                    fleetNumberOfVehicle, fleetSector, bMailBroker, mailAdressBroker,
+
+                    producerReference));
+
+}
+
+ 
+org.opentest4j.AssertionFailedError: Unexpected exception type thrown, 
+Expected :class be.axa.pccorp.eservicing.clink.soapadapter.ex.UploadCriteriaInvalidException
+Actual   :class java.lang.NullPointerException
+<Click to see difference>
+
+
+ at org.junit.jupiter.api.AssertionFailureBuilder.build(AssertionFailureBuilder.java:151)
+ at org.junit.jupiter.api.AssertThrows.assertThrows(AssertThrows.java:67)
+ at org.junit.jupiter.api.AssertThrows.assertThrows(AssertThrows.java:35)
+ at org.junit.jupiter.api.Assertions.assertThrows(Assertions.java:3128)
+ at be.axa.pccorp.eservicing.clink.service.impl.BrokerDocumentServiceTest.testAddDocumentsForDemandeOffre_uploadCriteriaInvalidException(BrokerDocumentServiceTest.java:3856)
+ at java.base/java.lang.reflect.Method.invoke(Method.java:580)
+ at java.base/java.util.ArrayList.forEach(ArrayList.java:1596)
+ at java.base/java.util.ArrayList.forEach(ArrayList.java:1596)
+Caused by: java.lang.NullPointerException: Cannot invoke "String.equals(Object)" because "inboxOtTypeId" is null
+ at be.axa.pccorp.eservicing.clink.service.impl.BrokerDocumentService.addDocumentsForDemandeOffre(BrokerDocumentService.java:388)
+ at be.axa.pccorp.eservicing.clink.service.impl.BrokerDocumentServiceTest.lambda$testAddDocumentsForDemandeOffre_uploadCriteriaInvalidException$39(BrokerDocumentServiceTest.java:3858)
+ at org.junit.jupiter.api.AssertThrows.assertThrows(AssertThrows.java:53)
+ ... 6 more
+
+@Test
+
+void testAddDocumentsForDemandeOffre_flowExceptionScenario() throws Exception {
+
+    // Arrange - Test the flow exception path when fleetNumber exists but inbox is null
+
+    List<MultipartFile> documents = Arrays.asList(mockFile);
+
+    List<CriterionVo> criteria = createTestCriteria();
+
+    String myDemand = "Test demand";
+
+    ReportLabelVo reportLabelVo = createTestReportLabelVo();
+
+    String documentTypeCode = "51";
+
+    String concernLabel = "Test concern";
+
+    Date brokerResponseDate = new Date();
+
+    String brokerReference = "BROKER123";
+
+    boolean bMailAccount = false;
+
+    String mailAdress = "";
+
+    String docPath = "/test/path";
+
+    String domain = "SOUSIARD";
+
+    String fleetNumber = "FLEET123"; // This triggers flow exception
+
+    String fleetNumberOfVehicle = "";
+
+    String fleetSector = "";
+
+    boolean bMailBroker = false;
+
+    String mailAdressBroker = "";
+
+    String producerReference = "PROD123";
+
+    // Setup mocks for flow exception scenario
+
+    setupMocksForFlowException();
 
     // Act
 
@@ -334,76 +369,264 @@ void testAddDocumentsForDemandeOffre_withSubstituter() throws Exception {
 
     assertEquals(3, result.length);
 
-    // Verify that substitution logic was handled
-
 }
 
+private void setupMocksForFlowException() throws Exception {
 
-
-
- 
-java.lang.NullPointerException: Cannot invoke "String.equals(Object)" because "inboxOtTypeId" is null
-
- at be.axa.pccorp.eservicing.clink.service.impl.BrokerDocumentService.addDocumentsForDemandeOffre(BrokerDocumentService.java:388)
- at be.axa.pccorp.eservicing.clink.service.impl.BrokerDocumentServiceTest.testAddDocumentsForDemandeOffre_withSubstituter(BrokerDocumentServiceTest.java:3725)
- at java.base/java.lang.reflect.Method.invoke(Method.java:580)
- at java.base/java.util.ArrayList.forEach(ArrayList.java:1596)
- at java.base/java.util.ArrayList.forEach(ArrayList.java:1596)
-
-
-
-
-
- 
-
-@Test
-
-void testGetGdAttribution_complexFleetScenario() throws Exception {
-
-    Method method = BrokerDocumentService.class.getDeclaredMethod("getGdAttribution",
-
-            String.class, String.class, String.class, String.class, String.class, String.class, String.class);
-
-    method.setAccessible(true);
-
-    // Setup attribution service response
+    // Setup attribution with manager but no inbox (triggers flow exception)
 
     AttributionOutputVo attributionOutput = new AttributionOutputVo();
 
-    attributionOutput.setManagerForAttribution("456");
+    attributionOutput.setManagerForAttribution("123"); // Manager exists
 
-    attributionOutput.setInboxForAttribution("FLEET_INBOX");
-
-    attributionOutput.setInboxForAttributionOfTypeId("Y");
+    attributionOutput.setInboxForAttribution(null); // No inbox - triggers flow exception
 
     when(gdAttributionRemoteServiceDao.getAttributionInfoFromGD(any(AttributionInputVo.class)))
 
             .thenReturn(attributionOutput);
 
+    // Setup other required mocks
+
+    DistributorInfo distributor = new DistributorInfo();
+
+    distributor.setDistributorId("DIST123");
+
+    distributor.setName("Test");
+
+    distributor.setFname("Distributor");
+
+    when(difAdapter.getDistributortByPAccId(anyString())).thenReturn(distributor);
+
+    Unit unit = mock(Unit.class);
+
+    when(unit.getOfficesPaGroupings()).thenReturn(new ArrayList<>());
+
+    when(difAdapter.getUnitByProducerAccountId(anyString())).thenReturn(unit);
+
+    when(uploadHistoryDao.insertUploadHistory(any(UploadHistoryVo.class))).thenReturn(1L);
+
+    when(communicationRecordProcessService.generateAndStoreDummyPdf()).thenReturn("ENV123");
+
+    RecordEnvelopeResponseBO envelopeResponse = new RecordEnvelopeResponseBO();
+
+    envelopeResponse.setEnvelopeID("ENV123");
+
+    when(communicationRecordProcessService.recordEnvelop(anyList(), anyString(), anyString(),
+
+            anyString(), anyString(), anyString(), anyLong())).thenReturn(envelopeResponse);
+
+}
+ 
+BusinessException{code=null, message='recordEnvelopeResponseBO in not found
+', origin='null', causes=null}
+ at be.axa.pccorp.eservicing.clink.service.impl.BrokerDocumentService.addDocumentsForDemandeOffre(BrokerDocumentService.java:449)
+ at be.axa.pccorp.eservicing.clink.service.impl.BrokerDocumentServiceTest.testAddDocumentsForDemandeOffre_flowExceptionScenario(BrokerDocumentServiceTest.java:3624)
+ at java.base/java.lang.reflect.Method.invoke(Method.java:580)
+ at java.base/java.util.ArrayList.forEach(ArrayList.java:1596)
+ at java.base/java.util.ArrayList.forEach(ArrayList.java:1596)
+Caused by: BusinessException{code=null, message='recordEnvelopeResponseBO in not found', origin='null', causes=null}
+ at be.axa.pccorp.eservicing.clink.service.impl.BrokerDocumentService.lambda$addDocumentsForDemandeOffre$0(BrokerDocumentService.java:445)
+ at java.base/java.util.Optional.orElseThrow(Optional.java:403)
+ at be.axa.pccorp.eservicing.clink.service.impl.BrokerDocumentService.addDocumentsForDemandeOffre(BrokerDocumentService.java:445)
+ ... 4 more
+
+ @Test
+
+void testAddDocumentsForDemandeOffre_inboxIdScenario() throws Exception {
+
+    // Arrange - Test when inboxId is used instead of inbox
+
+    List<MultipartFile> documents = Arrays.asList(mockFile);
+
+    List<CriterionVo> criteria = createTestCriteria();
+
+    String myDemand = "Test demand";
+
+    ReportLabelVo reportLabelVo = createTestReportLabelVo();
+
+    String documentTypeCode = "51";
+
+    String concernLabel = "Test concern";
+
+    Date brokerResponseDate = new Date();
+
+    String brokerReference = "BROKER123";
+
+    boolean bMailAccount = false;
+
+    String mailAdress = "";
+
+    String docPath = "/test/path";
+
+    String domain = "SOUSIARD";
+
+    String fleetNumber = "";
+
+    String fleetNumberOfVehicle = "";
+
+    String fleetSector = "";
+
+    boolean bMailBroker = false;
+
+    String mailAdressBroker = "";
+
+    String producerReference = "PROD123";
+
+    // Setup mocks for inboxId scenario
+
+    setupMocksForInboxIdScenario();
+
     // Act
 
-    Object result = method.invoke(brokerDocumentService, "SOUSAUTO", "FLEET123", "10|Ten vehicles",
+    String[] result = brokerDocumentService.addDocumentsForDemandeOffre(
 
-            "2|Leasing Sector", "AUTO", "123", "2");
+            validBrokerUserVo, documents, criteria, myDemand, reportLabelVo,
+
+            documentTypeCode, concernLabel, brokerResponseDate, brokerReference,
+
+            bMailAccount, mailAdress, docPath, domain, fleetNumber,
+
+            fleetNumberOfVehicle, fleetSector, bMailBroker, mailAdressBroker,
+
+            producerReference);
 
     // Assert
 
     assertNotNull(result);
 
-    // The result should be a GDAttribution record with the fleet labels
+    assertEquals(3, result.length);
 
 }
 
+private void setupMocksForInboxIdScenario() throws Exception {
 
+    // Setup attribution with inboxId (inboxForAttributionOfTypeId = "Y")
+
+    AttributionOutputVo attributionOutput = new AttributionOutputVo();
+
+    attributionOutput.setManagerForAttribution("0");
+
+    attributionOutput.setInboxForAttribution("INBOX123");
+
+    // Use reflection to set private field inboxForAttributionOfTypeId
+
+    Field field = AttributionOutputVo.class.getDeclaredField("inboxForAttributionOfTypeId");
+
+    field.setAccessible(true);
+
+    field.set(attributionOutput, "Y"); // This triggers inboxId path
+
+    when(gdAttributionRemoteServiceDao.getAttributionInfoFromGD(any(AttributionInputVo.class)))
+
+            .thenReturn(attributionOutput);
+
+    // Setup other mocks
+
+    setupBasicMocksForDemandeOffre();
+
+}
 
  
-java.lang.NoSuchMethodException: be.axa.pccorp.eservicing.clink.service.impl.BrokerDocumentService.getGdAttribution(java.lang.String,java.lang.String,java.lang.String,java.lang.String,java.lang.String,java.lang.String,java.lang.String)
+java.lang.NullPointerException: Cannot invoke "String.equals(Object)" because "inboxOtTypeId" is null
 
- at java.base/java.lang.Class.getDeclaredMethod(Class.java:2848)
- at be.axa.pccorp.eservicing.clink.service.impl.BrokerDocumentServiceTest.testGetGdAttribution_complexFleetScenario(BrokerDocumentServiceTest.java:3629)
+ at be.axa.pccorp.eservicing.clink.service.impl.BrokerDocumentService.addDocumentsForDemandeOffre(BrokerDocumentService.java:388)
+ at be.axa.pccorp.eservicing.clink.service.impl.BrokerDocumentServiceTest.testAddDocumentsForDemandeOffre_inboxIdScenario(BrokerDocumentServiceTest.java:3738)
  at java.base/java.lang.reflect.Method.invoke(Method.java:580)
  at java.base/java.util.ArrayList.forEach(ArrayList.java:1596)
  at java.base/java.util.ArrayList.forEach(ArrayList.java:1596)
 
- 
+
+@Test
+
+void testAddDocumentsForMandatPlacement_attributionException() throws Exception {
+
+    // Arrange
+
+    List<MultipartFile> documents = Arrays.asList(mockFile);
+
+    List<String> policeReferences = Arrays.asList("POL123456789");
+
+    String myDemand = "Test mandat demand";
+
+    ReportLabelVo reportLabelVo = createTestReportLabelVo();
+
+    String documentTypeCode = "45";
+
+    String concernLabel = "Test concern";
+
+    Date brokerResponseDate = new Date();
+
+    String brokerReference = "BROKER123";
+
+    String folderTypeId = "2";
+
+    String producerReference = "PROD123";
+
+    boolean bMailAccount = false;
+
+    String mailAdress = "";
+
+    boolean bMailBroker = false;
+
+    String mailAdressBroker = "";
+
+    // Setup basic mocks
+
+    BrokerFolderVo folderVo = mock(BrokerFolderVo.class);
+
+    when(folderVo.getInsuranceprodname()).thenReturn("Test Insurance Product");
+
+    when(folderVo.getGdFolderType()).thenReturn(new GdFolderTypeVoPT());
+
+    List<BrokerFolderVo> folders = Arrays.asList(folderVo);
+
+    when(gdFolderRemoteServicesDao.searchFoldersByObjectNameWithoutDocuments(
+
+            any(), anyString(), anyBoolean(), anyString()))
+
+            .thenReturn(folders);
+
+    DistributorInfo distributor = new DistributorInfo();
+
+    distributor.setDistributorId("DIST123");
+
+    when(difAdapter.getDistributortByPAccId(anyString())).thenReturn(distributor);
+
+    // Setup attribution to throw exception
+
+    when(gdAttributionRemoteServiceDao.getAttributionInfoFromGD(any(AttributionInputVo.class)))
+
+            .thenThrow(new BusinessException("Attribution service error"));
+
+    // Act & Assert
+
+    BusinessException exception = assertThrows(BusinessException.class, () ->
+
+            brokerDocumentService.addDocumentsForMandatPlacement(
+
+                    validBrokerUserVo, documents, policeReferences, myDemand, reportLabelVo,
+
+                    documentTypeCode, concernLabel, brokerResponseDate, brokerReference,
+
+                    folderTypeId, producerReference, bMailAccount, mailAdress,
+
+                    bMailBroker, mailAdressBroker));
+
+    assertEquals("Attribution service error", exception.getMessage());
+
+}
+
+ 15:47:10.971 [main] ERROR be.axa.pccorp.eservicing.clink.service.impl.BrokerDocumentService - BusinessException in addDocumentsForMandatPlacement()
+
+org.mockito.exceptions.misusing.UnnecessaryStubbingException: 
+Unnecessary stubbings detected.
+Clean & maintainable test code requires zero unnecessary code.
+Following stubbings are unnecessary (click to navigate to relevant line of code):
+  1. -> at be.axa.pccorp.eservicing.clink.service.impl.BrokerDocumentServiceTest.testAddDocumentsForMandatPlacement_attributionException(BrokerDocumentServiceTest.java:3998)
+Please remove unnecessary stubbings or use 'lenient' strictness. More info: javadoc for UnnecessaryStubbingException class.
+
+ at org.mockito.junit.jupiter.MockitoExtension.afterEach(MockitoExtension.java:197)
+ at java.base/java.util.ArrayList.forEach(ArrayList.java:1596)
+ at java.base/java.util.ArrayList.forEach(ArrayList.java:1596)
+
  
