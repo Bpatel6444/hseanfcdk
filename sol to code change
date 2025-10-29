@@ -1,0 +1,467 @@
+public String[] addDocumentsForDemandeOffre(BrokerUserVo brokerUserVo,
+
+                                  List<MultipartFile> documents, List criteria, String myDemand,
+
+                                  ReportLabelVo reportLabelVo, String documentTypeCode, String concernLabel,
+
+                                  Date brokerResponseDate, String brokerReference , boolean bMailAccount , String mailAdress , String docPath ,
+
+                                  String domain , String fleetNumber , String fleetNumberOfVehicle , String fleetSector ,
+
+                                  boolean bMailBroker , String mailAdressBroker, String producerReference)
+
+       throws BusinessException, UploadCriteriaInvalidException,
+
+       UploadDemandOrDocListEmptyException {
+ 
+    myDemand = convertChar(myDemand);
+
+    validateInputs(brokerUserVo, criteria, concernLabel, myDemand, documents);
+ 
+    List<CommunicationRecordAttachmentBO> communicationRecordAttachmentBOList = new ArrayList<>();
+ 
+    try {
+
+        CriterionVo criterionVo = (CriterionVo) criteria.get(0);
+
+        String companyType = criterionVo.getAnswerId();
+ 
+        CriterionVo finalCriterionVo = resolveFinalCriterion(criteria, companyType);
+
+        String answerId = finalCriterionVo.getAnswerId();
+ 
+        String defaultCorg = finalCriterionVo.getDefaultCorg();
+
+        String defaultSTypeDos = finalCriterionVo.getDefaultSTypeDos();
+
+        String codeProduct = "14".equals(defaultSTypeDos) ? defaultSTypeDos : "";
+
+        if (codeProduct.isEmpty()) codeProduct = defaultSTypeDos;
+ 
+        String producerAccount = "";
+
+        String regionCode = "";
+
+        if (StringUtils.contains(answerId, QuestionAndAnswerVo.PRODUCER_ACCOUNT_ID)) {
+
+            producerAccount = StringUtils.replace(answerId, QuestionAndAnswerVo.PRODUCER_ACCOUNT_ID, "");
+
+            regionCode = getRegionCode(producerAccount);
+
+        }
+ 
+        DistributorInfo dist = getDistributorInfo(brokerUserVo, null);
+
+        GDAttribution attribution = getGdAttribution(domain, fleetNumber, fleetNumberOfVehicle, fleetSector,
+
+                codeProduct, regionCode, defaultCorg, companyType);
+ 
+        String inbox = resolveInbox(attribution, fleetNumber);
+
+        String inboxId = resolveInboxId(attribution, inbox);
+
+        boolean flowException = isFlowException(attribution, fleetNumber, inbox);
+ 
+        String visibilityCode = "PRODUCTOR,3|";
+
+        String gdDocumentTypeCode = getDocumetTypeId(criteria, domain);
+
+        Calendar transferDate = Calendar.getInstance();
+
+        String mailAccount = bMailAccount ? "Y" : "N";
+ 
+        Long uploadHistoryId = saveHistory(null, transferDate, brokerUserVo, brokerUserVo.getSelectedPointOfSale(),
+
+                myDemand, brokerResponseDate, brokerReference, mailAccount, producerReference);
+ 
+        String userIdBackUp = brokerUserVo.getUserId();
+
+        brokerUserVo.setUserId(USER_CLINK_FOR_GD);
+
+        String submittedContentType = mapSubmittedContentType(documents, documentTypeCode, communicationRecordAttachmentBOList);
+
+        brokerUserVo.setUserId(userIdBackUp);
+ 
+        List newCriteria = adaptCriteria(criteria, brokerUserVo);
+
+        String producerName = dist.getName() + " " + dist.getFname();
+
+        String envelopUUid = communicationRecordProcessService.generateAndStoreDummyPdf();
+ 
+        String report = generateReportDemandOffre(brokerUserVo, documents, myDemand, reportLabelVo, concernLabel,
+
+                brokerResponseDate, brokerReference, bMailAccount, mailAdress, fleetNumber, mailAdressBroker,
+
+                flowException, inboxId, inbox, Integer.valueOf(attribution.attributionOutputVo().getManagerForAttribution()),
+
+                envelopUUid, transferDate, newCriteria, producerName, attribution);
+ 
+        RecordEnvelopeResponseBO recordEnvelopeResponseBO = recordEnvelop(brokerUserVo, reportLabelVo, documentTypeCode,
+
+                producerReference, submittedContentType, report, communicationRecordAttachmentBOList, envelopUUid,
+
+                uploadHistoryId, null);
+ 
+        String errorMail = "0000";
+
+        if (bMailAccount || bMailBroker) {
+
+            errorMail = sendMailDemandOffre(bMailAccount, bMailBroker, brokerUserVo, mailAdress, mailAdressBroker, report, documents);
+
+        }
+ 
+        String envId = Optional.ofNullable(recordEnvelopeResponseBO)
+
+                .orElseThrow(() -> new BusinessException("recordEnvelopeResponseBO in not found")).getEnvelopeID();
+ 
+        return new String[]{envId, errorMail, String.valueOf(communicationRecordAttachmentBOList.size())};
+ 
+    } catch (BusinessException | NumberFormatException e) {
+
+        throw new BusinessException(e.getLocalizedMessage(), e);
+
+    } catch (IOException e) {
+
+        throw new RuntimeException(e);
+
+    }
+
+}
+ 
+private void validateInputs(BrokerUserVo brokerUserVo, List criteria, String concernLabel, String myDemand, List<MultipartFile> documents) {
+
+    Validate.notNull(brokerUserVo, BROKERUSERVO_NULL);
+
+    Validate.isTrue(StringUtils.isNotBlank(brokerUserVo.getUserId()), BROKERUSERVO_USERID_NULL);
+
+    Validate.isTrue(StringUtils.isNotBlank(brokerUserVo.getUserLanguage()), BROKERUSERVO_LANGUAGE_NULL);
+
+    Validate.notNull(criteria, "criteria is null");
+
+    Validate.isTrue(criteria.size() > 0, "criteria is empty");
+
+    Validate.isTrue(StringUtils.isNotBlank(concernLabel), "concernLabel is null");
+
+    if (StringUtils.isBlank(myDemand) && documents.size() == 0) {
+
+        throw new UploadDemandOrDocListEmptyException();
+
+    }
+
+}
+ 
+private CriterionVo resolveFinalCriterion(List criteria, String companyType) {
+
+    int strange = 1;
+
+    CriterionVo criterionVo = (CriterionVo) criteria.get(criteria.size() - strange);
+
+    String answerId = criterionVo.getAnswerId();
+ 
+    if (StringUtils.contains(answerId, QuestionAndAnswerVo.PRODUCER_ACCOUNT_ID)
+&& (!companyType.equals(COMPANY_TYPE_PE)) && (!companyType.equals("3"))) {
+
+        strange++;
+
+        criterionVo = (CriterionVo) criteria.get(criteria.size() - strange);
+
+    }
+
+    return criterionVo;
+
+}
+ 
+private String resolveInbox(GDAttribution attribution, String fleetNumber) {
+
+    String inbox = attribution.attributionOutputVo().getInboxForAttribution();
+
+    if (fleetNumber.trim().length() > 0) {
+
+        fleetNumber = (fleetNumber + "000000000000").substring(0, 12);
+
+    }
+
+    return inbox;
+
+}
+ 
+private String resolveInboxId(GDAttribution attribution, String inbox) throws UploadCriteriaInvalidException {
+
+    String inboxId = "";
+
+    String inboxOtTypeId = attribution.attributionOutputVo().getInboxForAttributionOfTypeId();
+
+    if ("Y".equals(inboxOtTypeId)) {
+
+        inboxId = inbox;
+
+        inbox = "";
+
+    }
+
+    if (inbox == null) {
+
+        throw new UploadCriteriaInvalidException();
+
+    }
+
+    return inboxId;
+
+}
+ 
+private boolean isFlowException(GDAttribution attribution, String fleetNumber, String inbox) {
+
+    Integer managerId = Integer.valueOf(attribution.attributionOutputVo().getManagerForAttribution());
+
+    return managerId > 0 && fleetNumber.trim().length() > 0 && inbox == null;
+
+}
+
+
+
+
+
+
+
+
+
+
+public String[] addDocumentsForMandatPlacement(BrokerUserVo brokerUserVo,
+
+                                     List<MultipartFile> documents, List policeReferences, String myDemand,
+
+                                     ReportLabelVo reportLabelVo, String documentTypeCode, String concernLabel,
+
+                                     Date brokerResponseDate, String brokerReference, String folderTypeId , String producerReference ,
+
+                                     boolean bMailAccount , String mailAdress , boolean bMailBroker , String mailAdressBroker)
+
+       throws BusinessException, JBCException {
+ 
+    LOG.info("addDocumentsForMandatPlacement(documents, policeReferences, myDemand, reportLabelVo, concernLabel, brokerResponseDate, brokerReference); "
+
+            + documents + ";" + policeReferences + ";" + myDemand + ";" + reportLabelVo + ";" + concernLabel + ";"
+
+            + brokerResponseDate + ";" + brokerReference);
+ 
+    myDemand = convertChar(myDemand);
+
+    validateInputs(brokerUserVo, policeReferences, concernLabel, documents);
+ 
+    List<CommunicationRecordAttachmentBO> communicationRecordAttachmentBOList = new ArrayList<>();
+
+    RecordEnvelopeResponseBO recordEnvelopeResponseBO = null;
+
+    boolean errorOnSendEmail = false;
+ 
+    try {
+
+        DistributorInfo distributor = resolveDistributor(brokerUserVo);
+
+        String producerName = distributor.getName() + " " + distributor.getFname();
+
+        Calendar transferDate = Calendar.getInstance();
+
+        String mailAccount = bMailAccount ? "Y" : "N";
+ 
+        Long uploadHistoryId = saveHistory(null, transferDate, brokerUserVo, distributor.getDistributorId(),
+
+                myDemand, brokerResponseDate, brokerReference, mailAccount, null);
+ 
+        for (Object ref : policeReferences) {
+
+            String policeReference = (String) ref;
+
+            BrokerFolderVo folderVo = getFolderVo(brokerUserVo, policeReference, folderTypeId);
+
+            AttributionOutputVo attributionOutputVo = getAttributionInfo(brokerUserVo, folderVo, policeReference);
+
+            String productInsurance = folderVo.getInsuranceprodname();
+ 
+            String userIdBackUp = brokerUserVo.getUserId();
+
+            brokerUserVo.setUserId(USER_CLINK_FOR_GD);
+
+            String submittedContentType = mapSubmittedContentType(documents, documentTypeCode, communicationRecordAttachmentBOList);
+
+            String envelopUUid = communicationRecordProcessService.generateAndStoreDummyPdf();
+ 
+            String report = generateMandatReport(documents, policeReferences, envelopUUid, transferDate, producerName,
+
+                    myDemand, brokerUserVo, reportLabelVo, concernLabel, brokerResponseDate, brokerReference,
+
+                    productInsurance, producerReference, bMailAccount, mailAdress, mailAdressBroker, userIdBackUp);
+ 
+            addReportAttachment(report, submittedContentType, reportLabelVo, communicationRecordAttachmentBOList);
+ 
+            List<CommunicationRecordAttachmentBO> crmAttachments = communicationRecordProcessService.storeFiles(
+
+                    communicationRecordAttachmentBOList, envelopUUid, uploadHistoryId);
+ 
+            String communicationType = getCommunicationType(documentTypeCode);
+
+            if (crmAttachments != null && !crmAttachments.isEmpty()) {
+
+                recordEnvelopeResponseBO = communicationRecordProcessService.recordEnvelop(crmAttachments, envelopUUid,
+
+                        BUSINESS_OBJECT_TYPE_INSURANCE_AGREEMENT, policeReference, communicationType,
+
+                        DOMAIN_PC_UNDERWRITING_CORP, uploadHistoryId);
+
+            }
+ 
+            if (bMailAccount || bMailBroker) {
+
+                errorOnSendEmail = sendMailMandatPlacement(bMailAccount, bMailBroker, brokerUserVo, mailAdress,
+
+                        mailAdressBroker, report, documents);
+
+            }
+
+        }
+ 
+        String envelopeId = Optional.ofNullable(recordEnvelopeResponseBO)
+
+                .orElseThrow(() -> new BusinessException("recordEnvelopeResponseBO not found")).getEnvelopeID();
+
+        String errorCode = errorOnSendEmail ? "9999" : "0000";
+
+        return new String[]{envelopeId, errorCode, String.valueOf(communicationRecordAttachmentBOList.size())};
+ 
+    } catch (BusinessException | IOException e) {
+
+        throw new BusinessException(e.getLocalizedMessage(), e);
+
+    }
+
+}
+ 
+// Helper methods
+ 
+private void validateInputs(BrokerUserVo brokerUserVo, List policeReferences, String concernLabel, List<MultipartFile> documents) {
+
+    Validate.notNull(brokerUserVo, BROKERUSERVO_NULL);
+
+    Validate.isTrue(StringUtils.isNotBlank(brokerUserVo.getUserId()), BROKERUSERVO_USERID_NULL);
+
+    Validate.isTrue(StringUtils.isNotBlank(brokerUserVo.getUserLanguage()), BROKERUSERVO_LANGUAGE_NULL);
+
+    Validate.notNull(brokerUserVo.getApplicationLanguage(), "brokerUserVo.getApplicationLanguage() is null");
+
+    Validate.notNull(policeReferences, "policeReferences is null");
+
+    Validate.isTrue(policeReferences.size() > 0, "policeReferences is empty");
+
+    Validate.isTrue(StringUtils.isNotBlank(concernLabel), "concernLabel is null");
+
+    if (documents.isEmpty()) {
+
+        BusinessException e = new BusinessException(ErrorCode.UPLOAD_DOCLIST_EMPTY, ErrorCode.UPLOAD_DOCLIST_EMPTY);
+
+        e.setMessage(ErrorCode.UPLOAD_DOCLIST_EMPTY);
+
+        throw e;
+
+    }
+
+}
+ 
+private DistributorInfo resolveDistributor(BrokerUserVo brokerUserVo) {
+
+    if (StringUtils.isNotBlank(brokerUserVo.getSelectedProucerReference())) {
+
+        String temp = brokerUserVo.getSelectedProucerReference().trim();
+
+        DistributorInfo distributor = difAdapter.getDistributortByPAccId(temp);
+
+        brokerUserVo.setSelectedPointOfSale(distributor.getDistributorId());
+
+        return distributor;
+
+    }
+
+    return new DistributorInfo();
+
+}
+ 
+private BrokerFolderVo getFolderVo(BrokerUserVo brokerUserVo, String policeReference, String folderTypeId) {
+
+    List folders = gdFolderRemoteServicesDao.searchFoldersByObjectNameWithoutDocuments(
+
+            brokerUserVo, policeReference, true, folderTypeId);
+
+    return (BrokerFolderVo) folders.iterator().next();
+
+}
+ 
+private AttributionOutputVo getAttributionInfo(BrokerUserVo brokerUserVo, BrokerFolderVo folderVo, String policeReference) throws BusinessException {
+
+    AttributionInputVo inputVo = new AttributionInputVo();
+
+    inputVo.setGdFolderType(folderVo.getGdFolderType());
+
+    inputVo.setpolicyReference(policeReference);
+
+    inputVo.setBrokerUserVo(brokerUserVo);
+
+    try {
+
+        return gdAttributionRemoteServiceDao.getAttributionInfoFromGD(inputVo);
+
+    } catch (Exception e) {
+
+        LOG.error("Error in getAttributionInfoFromGD", e);
+
+        throw new BusinessException(e.getLocalizedMessage(), e);
+
+    }
+
+}
+ 
+private String generateMandatReport(List<MultipartFile> documents, List policeReferences, String envelopUUid,
+
+                                    Calendar transferDate, String producerName, String myDemand, BrokerUserVo brokerUserVo,
+
+                                    ReportLabelVo reportLabelVo, String concernLabel, Date brokerResponseDate,
+
+                                    String brokerReference, String productInsurance, String producerReference,
+
+                                    boolean bMailAccount, String mailAdress, String mailAdressBroker, String userIdBackUp) throws IOException {
+
+    brokerUserVo.setUserId(userIdBackUp);
+
+    String newProducerReference = adaptProducerReference(brokerUserVo, producerReference);
+
+    String report = generateReportForMandatPlacement(documents, policeReferences, envelopUUid, transferDate,
+
+            producerName, myDemand, brokerUserVo, reportLabelVo, concernLabel, brokerResponseDate,
+
+            brokerReference, productInsurance, newProducerReference, bMailAccount, mailAdress, mailAdressBroker);
+
+    brokerUserVo.setUserId(USER_CLINK_FOR_GD);
+
+    brokerUserVo.setUserId(userIdBackUp);
+
+    return report;
+
+}
+ 
+private void addReportAttachment(String report, String submittedContentType, ReportLabelVo reportLabelVo,
+
+                                 List<CommunicationRecordAttachmentBO> attachmentList) throws IOException {
+
+    CommunicationRecordAttachmentBO attachment = new CommunicationRecordAttachmentBO();
+
+    attachment.setSubmittedContentType(submittedContentType);
+
+    attachment.setDocumentName(reportLabelVo.getDocumentName());
+
+    attachment.setFile(report.getBytes(CP1252));
+
+    attachment.setContentType(CONTENT_TYPE_HTML);
+
+    attachmentList.add(attachment);
+
+}
+
+ 
