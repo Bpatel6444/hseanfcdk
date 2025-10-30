@@ -1,0 +1,454 @@
+package be.axa.pccorporate.servicing.claimviews.service;
+
+import java.lang.reflect.Type;
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.stream.Collectors;
+
+import be.axa.pccorporate.servicing.claimviews.config.JsonParseConfig;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
+import org.apache.commons.collections4.CollectionUtils;
+import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
+
+import com.google.gson.Gson;
+import com.google.gson.reflect.TypeToken;
+
+import be.axa.pccorporate.servicing.claimviews.constants.ClaimviewsConstant;
+import be.axa.pccorporate.servicing.claimviews.exception.ErrorCodes;
+import be.axa.pccorporate.servicing.claimviews.exception.ServiceNotAvailableException;
+import be.axa.pccorporate.servicing.claimviews.model.Payment;
+import be.axa.pccorporate.servicing.claimviews.model.PaymentIardGroup;
+import be.axa.pccorporate.servicing.claimviews.model.PaymentIardMain;
+import be.axa.pccorporate.servicing.claimviews.model.PaymentIardSub;
+import be.axa.pccorporate.servicing.claimviews.model.PaymentIardSubDetails;
+import be.axa.pccorporate.servicing.claimviews.service.helper.ServiceCallHelper;
+import be.axa.pccorporate.servicing.claimviews.util.FileReader;
+
+public class PaymentIARDServiceImpl implements PaymentIARDService {
+
+    private static final String LIMIT = "?limit=99999";
+    private static final String OFFSET = "&offset=0";
+    private static final String CLAIM_NUMBER = "&claimNbr=";
+    private static final String PAYMENT = "/payment_all";
+
+    private static final Log LOGGER = LogFactory.getLog(PaymentIARDServiceImpl.class);
+    private static final List<String> BAT_DIV = new ArrayList<String>(Arrays.asList("100", "101", "102", "103", "104",
+            "105", "107", "108", "109", "110", "111", "112", "113", "114", "115", "116", "117", "120", "121", "122",
+            "123", "124", "126", "601", "602", "603", "604", "605", "607", "608", "611", "613", "614", "615", "616",
+            "617", "626", "700", "701", "702", "703", "704", "705", "707", "708", "709", "710", "711", "712", "713",
+            "714", "715", "716", "717", "720", "721", "722", "723", "724", "726", "727", "800", "801", "802", "803",
+            "804", "805", "807", "808", "809", "810", "811", "812", "813", "814", "815", "816", "817", "820", "821",
+            "822", "823", "824", "826", "827", "877", "900", "901", "902", "903", "904", "905", "907", "908", "909",
+            "910", "911", "912", "913", "914", "915", "916", "917", "920", "921", "922", "923", "924", "926", "927"));
+    private static final List<String> AUTRES_DIV = new ArrayList<String>(
+            Arrays.asList("081", "200", "201", "202", "220", "221", "222", "223", "224", "227", "231", "232", "236",
+                    "237", "250", "251", "252", "300", "301", "302", "350", "351", "352", "400", "401", "402", "403",
+                    "404", "405", "406", "407", "408", "409", "410", "411", "412", "450", "256", "257"));
+    private static final List<String> CNU_DIV = new ArrayList<String>(Arrays.asList("071", "150", "151", "152", "153",
+            "154", "155", "158", "159", "160", "161", "162", "163", "164", "165", "166", "167", "168", "170", "171",
+            "172", "173", "174", "176", "651", "652", "653", "654", "655", "658", "660", "663", "664", "665", "667",
+            "668", "676", "750", "751", "752", "753", "754", "755", "758", "759", "760", "761", "762", "763", "764",
+            "765", "766", "767", "768", "770", "771", "772", "773", "774", "776", "850", "851", "852", "853", "854",
+            "855", "858", "859", "860", "861", "862", "863", "864", "865", "866", "867", "868", "870", "871", "872",
+            "873", "874", "876", "950", "951", "952", "953", "954", "955", "958", "959", "960", "961", "962", "963",
+            "964", "965", "966", "967", "968", "970", "971", "972", "973", "974", "976", "661", "666", "777", "977"));
+    private static final List<String> PEX_DIV = new ArrayList<String>(Arrays.asList("500", "501", "503", "504", "505",
+            "507", "508", "509", "510", "511", "512", "513", "514", "515", "516", "517", "518", "519", "525", "526",
+            "528", "529", "530", "532", "533", "534", "535", "536", "537", "538", "539", "540", "546", "547", "548",
+            "549", "550", "551", "553", "554", "555", "557", "558", "559", "560", "561", "562", "563", "564", "565",
+            "566", "567", "568", "569", "575", "576", "578", "579", "580", "582", "583", "584", "585", "586", "587",
+            "588", "589", "590", "681", "682", "683", "686", "258"));
+    private static final List<String> MAT_DIV = new ArrayList<String>(Arrays.asList("0401", "0411", "0431", "0441",
+            "0461", "0471", "0481", "0491", "0501", "9991", "2751", "2591"));
+    private static final List<String> CORP_DIV = new ArrayList<String>(Arrays.asList("0402", "0412", "0432", "0442",
+            "0462", "0472", "0482", "0492", "0502", "9992", "2752", "2592"));
+    public static void main(String[] args) throws JsonProcessingException {
+
+        // Create test instance
+
+        PaymentIARDServiceImpl service = new PaymentIARDServiceImpl();
+
+        // Test data based on your response
+
+        String testClaimNumber = "972490020001";
+
+        // Call the main method
+
+        List<Payment> result = service.getPayments(testClaimNumber);
+
+        // Debug output
+
+        if (result != null) {
+
+            System.out.println("Total payment groups: " + result.size());
+
+            for (int i = 0; i < result.size(); i++) {
+
+                Payment payment = result.get(i);
+
+                System.out.println("\n--- Payment Group " + (i + 1) + " ---");
+
+                System.out.println("Beneficiary: " + payment.getBenficiaryTypeCode());
+
+                System.out.println("Division: " + payment.getDivisionCode());
+
+                if (payment.getPaymentIardMains() != null) {
+
+                    for (int j = 0; j < payment.getPaymentIardMains().size(); j++) {
+
+                        PaymentIardMain main = payment.getPaymentIardMains().get(j);
+
+                        System.out.println("  Main Payment " + j + ":");
+
+                        System.out.println("    Order: " + main.getOrderNumber());
+
+                        System.out.println("    Total Amount: " + main.getTotalAllocationAmount());
+
+                        System.out.println("    Franchise: " + main.getFranchiseAmount());
+
+                        if (main.getSubPayments() != null) {
+
+                            System.out.println("    Sub Payment HTC: " + main.getSubPayments().getDetails().getHtcAmount());
+
+                            System.out.println("    Sub Payment Account: " + main.getSubPayments().getDetails().getAccountNumber());
+
+                        }
+
+                    }
+
+                }
+
+            }
+
+        } else {
+
+            System.out.println("No payments found");
+
+        }
+
+    }
+
+    @Override
+    public List<Payment> getPayments(String claimNumber) throws JsonProcessingException {
+
+        LOGGER.info("inside getPayments");
+        LOGGER.info("calling service");
+        ServiceCallHelper serviceCallHelper = getServiceCallHelper();
+        String response = null;
+        String url = serviceCallHelper.getServiceUrlPart()
+                + FileReader.getPropValues(ClaimviewsConstant.CLAIM_VIEWS_IARD_SERVICE_URL) + PAYMENT + LIMIT + OFFSET
+                + CLAIM_NUMBER + "%s";
+        try {
+            response = serviceCallHelper.getServiceClient().callRestService(String.format(url, claimNumber));
+        } catch (ServiceNotAvailableException e) {
+            LOGGER.error("Claimviews Service API service is not responding" + e.getMessage());
+            throw new ServiceNotAvailableException(ErrorCodes.CLAIMVIEWS_IARD_SERVICE_NOT_RESPONDING);
+        }
+        Type typeList = new TypeToken<List<be.axa.pccorporate.servicing.claimviews.claimviewsiardmodel.Payment>>() {
+        }.getType();
+        List<be.axa.pccorporate.servicing.claimviews.claimviewsiardmodel.Payment> paymentAll = JsonParseConfig.getObjectMapper()
+                .readValue(response, new TypeReference<>() {});
+
+        List<be.axa.pccorporate.servicing.claimviews.claimviewsiardmodel.Payment> paymentAfterFilter = filterCorrectPayment(paymentAll);
+        List<PaymentIardMain> paymentAfterMapping = toPaymentIardMain(paymentAfterFilter);
+        Map<PaymentIardGroup, List<PaymentIardMain>> groupMap = groupPayments(paymentAfterMapping);
+        LOGGER.info("size of map:: " + groupMap.size());
+        if (groupMap.size() > 0) {
+            return toFinalPayment(groupMap);
+        } else {
+            return null;
+        }
+
+    }
+
+    private List<Payment> toFinalPayment(Map<PaymentIardGroup, List<PaymentIardMain>> groupMap) {
+        Map<PaymentIardGroup, List<PaymentIardMain>> sortedMap = new HashMap<PaymentIardGroup, List<PaymentIardMain>>();
+        for (Map.Entry<PaymentIardGroup, List<PaymentIardMain>> entry : groupMap.entrySet()) {
+            List<PaymentIardMain> payments = entry.getValue();
+            if (payments.size() > 1) {
+                BigDecimal franchiseAmount = payments.stream().map(payment -> payment.getFranchiseAmount())
+                        .reduce(BigDecimal.ZERO, BigDecimal::add);
+                LocalDate latestPaymentDate = null;
+                List<PaymentIardMain> paymentsWithEmptyDate = payments.stream()
+                        .filter(payment -> StringUtils.isEmpty(payment.getLastUpdatedDate()))
+                        .collect(Collectors.toList());
+                if (CollectionUtils.isEmpty(paymentsWithEmptyDate)) {
+                    latestPaymentDate = payments.stream().map(payment -> payment.getLastUpdatedDt())
+                            .max(LocalDate::compareTo).get();
+                }
+                BigDecimal totalAllocationAmountEur = payments.stream().findFirst().get().getTotalAllocationAmountEur();
+                PaymentIardMain payment = payments.stream().findFirst().get();
+                PaymentIardMain target = new PaymentIardMain();
+                target.setBeneficiaryName(payment.getBeneficiaryName());
+                target.setBeneficiaryTypeFr(payment.getBeneficiaryTypeFr());
+                target.setBeneficiaryTypeNl(payment.getBeneficiaryTypeNl());
+                target.setDivisionFr(payment.getDivisionFr());
+                target.setDivisionNl(payment.getDivisionNl());
+                target.setTotalAllocationAmountEur(totalAllocationAmountEur);
+                target.setCurrencyCode(payment.getCurrencyCode());
+                target.setLastUpdateTime(payment.getLastUpdateTime());
+                if (latestPaymentDate != null) {
+                    target.setLastUpdatedDate(latestPaymentDate.format(DateTimeFormatter.ofPattern("dd/MM/yyyy")));
+                    target.setLastUpdatedDt(latestPaymentDate);
+                } else {
+                    target.setLastUpdatedDate(StringUtils.EMPTY);
+                    target.setLastUpdatedDt(null);
+                }
+                target.setFranchiseAmount(franchiseAmount);
+                target.setBenfTypeCd(payment.getBenfTypeCd());
+                target.setDivCd(payment.getDivCd());
+                target.setFerme(StringUtils.isNotEmpty(payment.getFerme()) ? payment.getFerme() : StringUtils.EMPTY);
+                payments.add(target);
+
+                List<PaymentIardMain> sortedList = payments.stream()
+                        .sorted(new PaymentIARDComparator()
+                                .thenComparing(Comparator.comparing(PaymentIardMain::getOrderNumber)))
+                        .collect(Collectors.toList());
+                sortedMap.put(entry.getKey(), sortedList);
+
+            } else {
+                sortedMap.put(entry.getKey(), payments);
+            }
+        }
+
+        List<Payment> paymentWithoutOrder = new ArrayList<Payment>();
+        for (Map.Entry<PaymentIardGroup, List<PaymentIardMain>> entry : sortedMap.entrySet()) {
+            Payment paymentNew = new Payment();
+            List<PaymentIardMain> payments = entry.getValue();
+            Optional<LocalDate> dateOfBoldPayment = payments.stream()
+                    .filter(payment -> payment.getSubPayments() == null).findFirst()
+                    .map(PaymentIardMain::getLastUpdatedDt);
+            PaymentIardMain mainPayment = payments.get(0);
+            paymentNew.setBenficiaryTypeCode(mainPayment.getBenfTypeCd());
+            paymentNew.setDivisionCode(mainPayment.getDivCd());
+            if (dateOfBoldPayment.isPresent()) {
+                paymentNew.setExecutionDate(dateOfBoldPayment.get());
+            } else {
+                paymentNew.setExecutionDate(null);
+            }
+            paymentNew.setPaymentIardMains(payments);
+            paymentWithoutOrder.add(paymentNew);
+        }
+
+        Comparator<Payment> sortWithBenTypeCd = Comparator.comparing(Payment::getBenficiaryTypeCode);
+        Comparator<Payment> sortWithDivCd = Comparator.comparing(Payment::getDivisionCode);
+        List<Payment> paymentWithOrder = paymentWithoutOrder.stream()
+                .sorted(sortWithBenTypeCd.thenComparing(sortWithDivCd).thenComparing(new PaymentComparator()))
+                .collect(Collectors.toList());
+        return paymentWithOrder;
+    }
+
+    private List<be.axa.pccorporate.servicing.claimviews.claimviewsiardmodel.Payment> filterCorrectPayment(List<be.axa.pccorporate.servicing.claimviews.claimviewsiardmodel.Payment> paymentAll) {
+        return paymentAll.stream().filter(payment -> StringUtils.isNotEmpty(payment.getBeneficiaryName()))
+                .filter(payment -> StringUtils.isNotEmpty(payment.getDivisionCd()))
+                .collect(Collectors.toList());
+    }
+
+    private List<PaymentIardMain> toPaymentIardMain(List<be.axa.pccorporate.servicing.claimviews.claimviewsiardmodel.Payment> payments) {
+
+        List<PaymentIardMain> targetPayments = new ArrayList<PaymentIardMain>();
+        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+        DateTimeFormatter executionDtFormatter = DateTimeFormatter.ofPattern("dd/MM/yyyy");
+        payments.forEach(payment -> {
+            PaymentIardMain target = new PaymentIardMain();
+
+            target.setBeneficiaryName(payment.getBeneficiaryName());
+            target.setBeneficiaryTypeFr(payment.getBeneficiaryTypeFr());
+            target.setBeneficiaryTypeNl(payment.getBeneficiaryTypeNl());
+            target.setBeneficiaryTypeCd(payment.getBeneficiaryTypeCd());
+            target.setBenfTypeCd(Integer.parseInt(payment.getBeneficiaryTypeCd()));
+            target.setDivCd(Integer.parseInt(payment.getDivisionCd()));
+            target.setDivisionCd(payment.getDivisionCd());
+            if(StringUtils.isNotEmpty(payment.getOrderNbr())) {
+                target.setOrderNumber(Integer.parseInt(payment.getOrderNbr()));
+            }
+            setDivision(payment, target);
+            target.setTotalAllocationAmount(toBigDecimal(payment.getTotalAllocationAmount()));
+            target.setTotalAllocationAmountEur(toBigDecimal(payment.getTotalAllocationAmountEur()));
+            target.setCurrencyCode(payment.getCurrencyCd());
+            if (StringUtils.isNotEmpty(payment.getLastUpdateDt())) {
+                target.setLastUpdatedDate(payment.getLastUpdateDt());
+                target.setLastUpdatedDt(LocalDate.parse(payment.getLastUpdateDt(), executionDtFormatter));
+            } else {
+                target.setLastUpdatedDate(StringUtils.EMPTY);
+                target.setLastUpdatedDt(null);
+            }
+            target.setFranchiseAmount(toBigDecimal(payment.getTotalFranchiseAmount()));
+            target.setLastUpdateTime(payment.getLastUpdatedTime());
+            target.setLastUpdate(LocalDateTime.parse(payment.getLastUpdatedTime(), formatter));
+            target.setFerme(
+                    StringUtils.isNotEmpty(payment.getClosedFlg()) ? payment.getClosedFlg() : StringUtils.EMPTY);
+            PaymentIardSub subPayment = new PaymentIardSub();
+            subPayment.setQuotePart(payment.getQpCd());
+            subPayment.setParticularitiesCode(payment.getParticularitiesCd());
+            subPayment.setPaymentReference(payment.getPaymentReference());
+            subPayment.setStatusFr(payment.getStatusFr());
+            subPayment.setStatusNl(payment.getStatusNl());
+            PaymentIardSubDetails subPaymentDetails = new PaymentIardSubDetails();
+                subPaymentDetails.setAccountNumber(payment.getAccountNbr());
+                subPaymentDetails.setIntermediaryName(payment.getIntermediaryName());
+                subPaymentDetails.setCurrencyCd(payment.getCurrencyCd());
+                subPaymentDetails.setVatLiabilityPercentage(toBigDecimal(payment.getVatLiabilityPercentage()));
+                subPaymentDetails.setDivisionFr(payment.getDivisionFr());
+                subPaymentDetails.setDivisionNl(payment.getDivisionNl());
+                subPaymentDetails.setGarantieFr(payment.getGarantyFr());
+                subPaymentDetails.setGarantieNl(payment.getGarantyNl());
+                subPaymentDetails.setDetailFr(payment.getDetailFr());
+                subPaymentDetails.setDetailNl(payment.getDetailNl());
+                subPaymentDetails.setDetailTypeFr(payment.getAmountTypeFr());
+                subPaymentDetails.setDetailTypeNl(payment.getAmountTypeNl());
+                subPaymentDetails.setVatAmountPercentage(toBigDecimal(payment.getVatAmountPercentage()));
+                subPaymentDetails.setHtcAmount(toBigDecimal(payment.getHtcAmount()));
+                subPaymentDetails.setTvaAmount(toBigDecimal(payment.getTvaAmount()));
+                subPayment.setDetails(subPaymentDetails);
+                target.setSubPayments(subPayment);
+
+
+            targetPayments.add(target);
+        });
+        return targetPayments;
+    }
+    
+    private BigDecimal toBigDecimal(Double amount) {
+        
+        if(amount != null) {
+            return BigDecimal.valueOf(amount);
+        } else {
+            return null;
+        }
+    }
+
+    private void setDivision(be.axa.pccorporate.servicing.claimviews.claimviewsiardmodel.Payment payment, PaymentIardMain target) {
+        if (StringUtils.isNotEmpty(payment.getDivisionCd())) {
+            if (BAT_DIV.contains(payment.getDivisionCd())) {
+                target.setDivisionFr("BAT");
+                target.setDivisionNl("GEB");
+            } else if (AUTRES_DIV.contains(payment.getDivisionCd())) {
+                target.setDivisionFr("AUTRES");
+                target.setDivisionNl("ANDEREN");
+            } else if (CNU_DIV.contains(payment.getDivisionCd())) {
+                target.setDivisionFr("CNU");
+                target.setDivisionNl("INH");
+            } else if (PEX_DIV.contains(payment.getDivisionCd())) {
+                target.setDivisionFr("PEX");
+                target.setDivisionNl("BFS");
+            } else if (MAT_DIV.contains(payment.getDivisionCd())) {
+                target.setDivisionFr("(im)matériel");
+                target.setDivisionNl("(im)materieel");
+            } else if (CORP_DIV.contains(payment.getDivisionCd())) {
+                target.setDivisionFr("Corporel");
+                target.setDivisionNl("Lichamelijk");
+            } 
+        }
+    }
+
+    private Map<PaymentIardGroup, List<PaymentIardMain>> groupPayments(List<PaymentIardMain> paymentAll) {
+        return paymentAll.stream().collect(Collectors
+                .groupingBy(payment -> new PaymentIardGroup(payment.getBeneficiaryName(), payment.getDivisionCd())));
+    }
+
+    public ServiceCallHelper getServiceCallHelper() {
+        return new ServiceCallHelper();
+    }
+
+}
+
+ "C:\Program Files\Java\JDK21_Redhat\bin\java.exe" "-javaagent:C:\Program Files (x86)\JetBrains\IntelliJ IDEA Community Edition 2024.1.4\lib\idea_rt.jar=53177:C:\Program Files (x86)\JetBrains\IntelliJ IDEA Community Edition 2024.1.4\bin" -Dfile.encoding=UTF-8 -Dsun.stdout.encoding=UTF-8 -Dsun.stderr.encoding=UTF-8 -classpath C:\Users\DKBH167\IdeaProjects\be.axa.pccorporate.claimviews.api.v1\target\classes;C:\Data\.m2\repository\org\projectlombok\lombok\1.18.38\lombok-1.18.38.jar;C:\Data\.m2\repository\org\threeten\threetenbp\1.7.1\threetenbp-1.7.1.jar;C:\Data\.m2\repository\commons-logging\commons-logging\1.3.5\commons-logging-1.3.5.jar;C:\Data\.m2\repository\org\apache\httpcomponents\httpcore\4.4.16\httpcore-4.4.16.jar;C:\Data\.m2\repository\com\fasterxml\jackson\core\jackson-databind\2.19.1\jackson-databind-2.19.1.jar;C:\Data\.m2\repository\org\apache\commons\commons-collections4\4.5.0\commons-collections4-4.5.0.jar;C:\Data\.m2\repository\com\amazonaws\aws-lambda-java-events\3.15.0\aws-lambda-java-events-3.15.0.jar;C:\Data\.m2\repository\joda-time\joda-time\2.10.8\joda-time-2.10.8.jar;C:\Data\.m2\repository\com\amazonaws\aws-java-sdk-lambda\1.12.787\aws-java-sdk-lambda-1.12.787.jar;C:\Data\.m2\repository\com\amazonaws\aws-java-sdk-core\1.12.787\aws-java-sdk-core-1.12.787.jar;C:\Data\.m2\repository\commons-codec\commons-codec\1.15\commons-codec-1.15.jar;C:\Data\.m2\repository\org\apache\httpcomponents\httpclient\4.5.13\httpclient-4.5.13.jar;C:\Data\.m2\repository\com\fasterxml\jackson\dataformat\jackson-dataformat-cbor\2.17.2\jackson-dataformat-cbor-2.17.2.jar;C:\Data\.m2\repository\com\amazonaws\jmespath-java\1.12.787\jmespath-java-1.12.787.jar;C:\Data\.m2\repository\com\amazonaws\aws-java-sdk-dynamodb\1.12.787\aws-java-sdk-dynamodb-1.12.787.jar;C:\Data\.m2\repository\com\amazonaws\aws-java-sdk-s3\1.12.787\aws-java-sdk-s3-1.12.787.jar;C:\Data\.m2\repository\com\amazonaws\aws-java-sdk-kms\1.12.787\aws-java-sdk-kms-1.12.787.jar;C:\Data\.m2\repository\com\google\code\gson\gson\2.13.1\gson-2.13.1.jar;C:\Data\.m2\repository\com\google\errorprone\error_prone_annotations\2.38.0\error_prone_annotations-2.38.0.jar;C:\Data\.m2\repository\com\amazonaws\aws-java-sdk-secretsmanager\1.12.787\aws-java-sdk-secretsmanager-1.12.787.jar;C:\Data\.m2\repository\io\jsonwebtoken\jjwt\0.12.6\jjwt-0.12.6.jar;C:\Data\.m2\repository\io\jsonwebtoken\jjwt-api\0.12.6\jjwt-api-0.12.6.jar;C:\Data\.m2\repository\io\jsonwebtoken\jjwt-impl\0.12.6\jjwt-impl-0.12.6.jar;C:\Data\.m2\repository\io\jsonwebtoken\jjwt-jackson\0.12.6\jjwt-jackson-0.12.6.jar;C:\Data\.m2\repository\org\apache\commons\commons-lang3\3.17.0\commons-lang3-3.17.0.jar;C:\Data\.m2\repository\io\swagger\swagger-annotations\1.6.16\swagger-annotations-1.6.16.jar;C:\Data\.m2\repository\org\postgresql\postgresql\42.7.8\postgresql-42.7.8.jar;C:\Data\.m2\repository\org\checkerframework\checker-qual\3.49.5\checker-qual-3.49.5.jar;C:\Data\.m2\repository\jakarta\xml\ws\jakarta.xml.ws-api\4.0.2\jakarta.xml.ws-api-4.0.2.jar;C:\Data\.m2\repository\jakarta\xml\soap\jakarta.xml.soap-api\3.0.2\jakarta.xml.soap-api-3.0.2.jar;C:\Data\.m2\repository\jakarta\xml\bind\jakarta.xml.bind-api\4.0.2\jakarta.xml.bind-api-4.0.2.jar;C:\Data\.m2\repository\jakarta\activation\jakarta.activation-api\2.1.3\jakarta.activation-api-2.1.3.jar;C:\Data\.m2\repository\com\fasterxml\jackson\core\jackson-core\2.19.1\jackson-core-2.19.1.jar;C:\Data\.m2\repository\com\fasterxml\jackson\core\jackson-annotations\2.19.1\jackson-annotations-2.19.1.jar;C:\Data\.m2\repository\com\sun\xml\bind\jaxb-impl\4.0.5\jaxb-impl-4.0.5.jar;C:\Data\.m2\repository\com\sun\xml\bind\jaxb-core\4.0.5\jaxb-core-4.0.5.jar;C:\Data\.m2\repository\org\eclipse\angus\angus-activation\2.0.2\angus-activation-2.0.2.jar;C:\Data\.m2\repository\org\openapitools\jackson-databind-nullable\0.2.6\jackson-databind-nullable-0.2.6.jar;C:\Data\.m2\repository\org\springdoc\springdoc-openapi-starter-webmvc-ui\2.8.9\springdoc-openapi-starter-webmvc-ui-2.8.9.jar;C:\Data\.m2\repository\org\springdoc\springdoc-openapi-starter-webmvc-api\2.8.9\springdoc-openapi-starter-webmvc-api-2.8.9.jar;C:\Data\.m2\repository\org\springdoc\springdoc-openapi-starter-common\2.8.9\springdoc-openapi-starter-common-2.8.9.jar;C:\Data\.m2\repository\org\springframework\boot\spring-boot-autoconfigure\3.5.0\spring-boot-autoconfigure-3.5.0.jar;C:\Data\.m2\repository\org\springframework\boot\spring-boot\3.5.0\spring-boot-3.5.0.jar;C:\Data\.m2\repository\org\springframework\boot\spring-boot-starter-validation\3.5.0\spring-boot-starter-validation-3.5.0.jar;C:\Data\.m2\repository\org\springframework\boot\spring-boot-starter\3.5.0\spring-boot-starter-3.5.0.jar;C:\Data\.m2\repository\org\springframework\boot\spring-boot-starter-logging\3.5.0\spring-boot-starter-logging-3.5.0.jar;C:\Data\.m2\repository\ch\qos\logback\logback-classic\1.5.18\logback-classic-1.5.18.jar;C:\Data\.m2\repository\ch\qos\logback\logback-core\1.5.18\logback-core-1.5.18.jar;C:\Data\.m2\repository\org\apache\logging\log4j\log4j-to-slf4j\2.24.3\log4j-to-slf4j-2.24.3.jar;C:\Data\.m2\repository\org\apache\logging\log4j\log4j-api\2.24.3\log4j-api-2.24.3.jar;C:\Data\.m2\repository\org\slf4j\jul-to-slf4j\2.0.17\jul-to-slf4j-2.0.17.jar;C:\Data\.m2\repository\org\apache\tomcat\embed\tomcat-embed-el\10.1.41\tomcat-embed-el-10.1.41.jar;C:\Data\.m2\repository\org\hibernate\validator\hibernate-validator\8.0.2.Final\hibernate-validator-8.0.2.Final.jar;C:\Data\.m2\repository\org\jboss\logging\jboss-logging\3.4.3.Final\jboss-logging-3.4.3.Final.jar;C:\Data\.m2\repository\com\fasterxml\classmate\1.5.1\classmate-1.5.1.jar;C:\Data\.m2\repository\io\swagger\core\v3\swagger-core-jakarta\2.2.30\swagger-core-jakarta-2.2.30.jar;C:\Data\.m2\repository\org\slf4j\slf4j-api\2.0.9\slf4j-api-2.0.9.jar;C:\Data\.m2\repository\io\swagger\core\v3\swagger-annotations-jakarta\2.2.30\swagger-annotations-jakarta-2.2.30.jar;C:\Data\.m2\repository\io\swagger\core\v3\swagger-models-jakarta\2.2.30\swagger-models-jakarta-2.2.30.jar;C:\Data\.m2\repository\org\yaml\snakeyaml\2.3\snakeyaml-2.3.jar;C:\Data\.m2\repository\com\fasterxml\jackson\dataformat\jackson-dataformat-yaml\2.18.2\jackson-dataformat-yaml-2.18.2.jar;C:\Data\.m2\repository\com\fasterxml\jackson\datatype\jackson-datatype-jsr310\2.18.2\jackson-datatype-jsr310-2.18.2.jar;C:\Data\.m2\repository\org\springframework\spring-webmvc\6.2.7\spring-webmvc-6.2.7.jar;C:\Data\.m2\repository\org\springframework\spring-aop\6.2.7\spring-aop-6.2.7.jar;C:\Data\.m2\repository\org\springframework\spring-beans\6.2.7\spring-beans-6.2.7.jar;C:\Data\.m2\repository\org\springframework\spring-context\6.2.7\spring-context-6.2.7.jar;C:\Data\.m2\repository\io\micrometer\micrometer-observation\1.14.7\micrometer-observation-1.14.7.jar;C:\Data\.m2\repository\io\micrometer\micrometer-commons\1.14.7\micrometer-commons-1.14.7.jar;C:\Data\.m2\repository\org\springframework\spring-core\6.2.7\spring-core-6.2.7.jar;C:\Data\.m2\repository\org\springframework\spring-jcl\6.2.7\spring-jcl-6.2.7.jar;C:\Data\.m2\repository\org\springframework\spring-expression\6.2.7\spring-expression-6.2.7.jar;C:\Data\.m2\repository\org\springframework\spring-web\6.2.7\spring-web-6.2.7.jar;C:\Data\.m2\repository\org\webjars\swagger-ui\5.21.0\swagger-ui-5.21.0.jar;C:\Data\.m2\repository\org\webjars\webjars-locator-lite\1.1.0\webjars-locator-lite-1.1.0.jar;C:\Data\.m2\repository\org\jspecify\jspecify\1.0.0\jspecify-1.0.0.jar;C:\Data\.m2\repository\jakarta\validation\jakarta.validation-api\3.1.1\jakarta.validation-api-3.1.1.jar;C:\Data\.m2\repository\jakarta\annotation\jakarta.annotation-api\3.0.0\jakarta.annotation-api-3.0.0.jar be.axa.pccorporate.servicing.claimviews.service.PaymentIARDServiceImpl
+
+Standard Commons Logging discovery in action with spring-jcl: please remove commons-logging.jar from classpath in order to avoid potential conflicts
+
+2025-10-30 16:04:53 [main] INFO  b.a.p.s.c.s.PaymentIARDServiceImpl - inside getPayments
+
+2025-10-30 16:04:53 [main] INFO  b.a.p.s.c.s.PaymentIARDServiceImpl - calling service
+
+2025-10-30 16:04:53 [main] INFO  b.a.p.s.c.service.ServiceClient - Rest URL::https://null.execute-api.eu-central-1.amazonaws.com/null/be-axa-data-dataplatform-APR-ClaimviewRCDOMVS-v1/payment_all?limit=99999&offset=0&claimNbr=972490020001
+
+2025-10-30 16:04:54 [main] DEBUG o.a.h.c.protocol.RequestAddCookies - CookieSpec selected: default
+
+2025-10-30 16:04:54 [main] DEBUG o.a.h.c.protocol.RequestAuthCache - Auth cache not set in the context
+
+2025-10-30 16:04:54 [main] DEBUG o.a.h.i.c.PoolingHttpClientConnectionManager - Connection request: [route: {s}->https://null.execute-api.eu-central-1.amazonaws.com:443][total available: 0; route allocated: 0 of 2; total allocated: 0 of 20]
+
+2025-10-30 16:04:54 [main] DEBUG o.a.h.i.c.PoolingHttpClientConnectionManager - Connection leased: [id: 0][route: {s}->https://null.execute-api.eu-central-1.amazonaws.com:443][total available: 0; route allocated: 1 of 2; total allocated: 1 of 20]
+
+2025-10-30 16:04:54 [main] DEBUG o.a.h.impl.execchain.MainClientExec - Opening connection {s}->https://null.execute-api.eu-central-1.amazonaws.com:443
+
+2025-10-30 16:04:55 [main] DEBUG o.a.h.i.c.DefaultManagedHttpClientConnection - http-outgoing-0: Shutdown connection
+
+2025-10-30 16:04:55 [main] DEBUG o.a.h.impl.execchain.MainClientExec - Connection discarded
+
+2025-10-30 16:04:55 [main] DEBUG o.a.h.i.c.PoolingHttpClientConnectionManager - Connection released: [id: 0][route: {s}->https://null.execute-api.eu-central-1.amazonaws.com:443][total available: 0; route allocated: 0 of 2; total allocated: 0 of 20]
+
+2025-10-30 16:04:55 [main] DEBUG o.a.h.i.c.PoolingHttpClientConnectionManager - Connection manager is shutting down
+
+2025-10-30 16:04:55 [main] DEBUG o.a.h.i.c.PoolingHttpClientConnectionManager - Connection manager shut down
+
+2025-10-30 16:04:55 [main] ERROR b.a.p.s.c.service.ServiceClient - Error while calling Rest service
+
+java.net.UnknownHostException: No such host is known (null.execute-api.eu-central-1.amazonaws.com)
+
+ 	at java.base/java.net.Inet6AddressImpl.lookupAllHostAddr(Native Method)
+
+	at java.base/java.net.Inet6AddressImpl.lookupAllHostAddr(Inet6AddressImpl.java:52)
+
+	at java.base/java.net.InetAddress$PlatformResolver.lookupByName(InetAddress.java:1211)
+
+	at java.base/java.net.InetAddress.getAddressesFromNameService(InetAddress.java:1828)
+
+	at java.base/java.net.InetAddress$NameServiceAddresses.get(InetAddress.java:1139)
+
+	at java.base/java.net.InetAddress.getAllByName0(InetAddress.java:1818)
+
+	at java.base/java.net.InetAddress.getAllByName(InetAddress.java:1688)
+
+	at org.apache.http.impl.conn.SystemDefaultDnsResolver.resolve(SystemDefaultDnsResolver.java:45)
+
+	at org.apache.http.impl.conn.DefaultHttpClientConnectionOperator.connect(DefaultHttpClientConnectionOperator.java:112)
+
+	at org.apache.http.impl.conn.PoolingHttpClientConnectionManager.connect(PoolingHttpClientConnectionManager.java:376)
+
+	at org.apache.http.impl.execchain.MainClientExec.establishRoute(MainClientExec.java:393)
+
+	at org.apache.http.impl.execchain.MainClientExec.execute(MainClientExec.java:236)
+
+	at org.apache.http.impl.execchain.ProtocolExec.execute(ProtocolExec.java:186)
+
+	at org.apache.http.impl.execchain.RetryExec.execute(RetryExec.java:89)
+
+	at org.apache.http.impl.execchain.RedirectExec.execute(RedirectExec.java:110)
+
+	at org.apache.http.impl.client.InternalHttpClient.doExecute(InternalHttpClient.java:185)
+
+	at org.apache.http.impl.client.CloseableHttpClient.execute(CloseableHttpClient.java:83)
+
+	at org.apache.http.impl.client.CloseableHttpClient.execute(CloseableHttpClient.java:108)
+
+	at be.axa.pccorporate.servicing.claimviews.service.ServiceClient.callRestService(ServiceClient.java:32)
+
+	at be.axa.pccorporate.servicing.claimviews.service.PaymentIARDServiceImpl.getPayments(PaymentIARDServiceImpl.java:154)
+
+	at be.axa.pccorporate.servicing.claimviews.service.PaymentIARDServiceImpl.main(PaymentIARDServiceImpl.java:89)
+
+Exception in thread "main" be.axa.pccorporate.servicing.claimviews.exception.ClaimviewsCustomException: No such host is known (null.execute-api.eu-central-1.amazonaws.com)
+
+	at be.axa.pccorporate.servicing.claimviews.service.ServiceClient.callRestService(ServiceClient.java:56)
+
+	at be.axa.pccorporate.servicing.claimviews.service.PaymentIARDServiceImpl.getPayments(PaymentIARDServiceImpl.java:154)
+
+	at be.axa.pccorporate.servicing.claimviews.service.PaymentIARDServiceImpl.main(PaymentIARDServiceImpl.java:89)
+ 
+Process finished with exit code 1
+
+ 
