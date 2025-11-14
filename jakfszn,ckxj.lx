@@ -1,0 +1,1121 @@
+package be.axa.pccorp.eservicing.clink;
+
+import be.axa.common.oauth.annotation.OAuthScope;
+import be.axa.et.security.oauth2.IGetOauth2JWT;
+import be.axa.pccorp.eservicing.clink.api.AuthorizationApi;
+import be.axa.pccorp.eservicing.clink.common.Validator;
+import be.axa.pccorp.eservicing.clink.model.BusinessManagerDescription;
+import be.axa.pccorp.eservicing.clink.model.GetPortimaInput;
+import be.axa.pccorp.eservicing.clink.model.GetPortimaOutput;
+import be.axa.pccorp.eservicing.clink.model.UserDescriptionOutput;
+import be.axa.pccorp.eservicing.clink.tool.CacheHelper;
+import be.axa.pccorp.eservicing.clink.model.constants.Constants;
+import be.axa.pccorp.eservicing.clink.model.exception.BusinessException;
+import be.axa.pccorp.eservicing.clink.model.exception.ErrorCode;
+import be.axa.pccorp.eservicing.clink.model.exception.ErrorCodePicasso;
+
+import be.axa.pccorp.eservicing.clink.model.type.ProducerNumberDescription;
+import be.axa.pccorp.eservicing.clink.service.ILogOnMgtService;
+import be.axa.pccorp.eservicing.clink.soapadapter.ex.TechnicalException;
+import be.axa.pccorp.eservicing.clink.soapadapter.ex.UserNotAllowedException;
+import be.axa.pccorp.eservicing.clink.soapadapter.type.BrokerUserVo;
+import be.axa.pccorp.eservicing.clink.soapadapter.type.IRole;
+import be.axa.pccorp.eservicing.clink.soapadapter.type.RoleAdmin;
+import be.axa.pccorp.eservicing.clink.soapadapter.type.RoleBroker;
+import be.axa.pccorp.eservicing.clink.soapadapter.vo.PointOfSaleMinType;
+
+import be.axa.pccorp.eservicing.clink.util.Jwt2ClaimUtil;
+import be.axa.pccorp.eservicing.clink.util.RestUtil;
+import jakarta.servlet.http.HttpServletRequest;
+import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.lang3.Validate;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.*;
+import java.util.stream.Collectors;
+
+@RestController
+@RequestMapping("/v1")
+public class AuthorizationController implements AuthorizationApi {
+
+    private static final String ROLE_ADMIN = "A";
+
+    public static final String TECHNICAL_ERROR = "Technical error";
+
+    private static final Logger log = LogManager.getLogger(AuthorizationController.class);
+
+    @Autowired
+    private ILogOnMgtService logOnMgtService;
+
+    @Autowired
+    private HttpServletRequest requestScopedIncomingHttpServletRequest;
+
+    @Autowired
+    private CacheHelper cacheHelper;
+
+    @Autowired
+    private Validator validator;
+
+    private final IGetOauth2JWT getOauthJWT;
+
+    public AuthorizationController(IGetOauth2JWT getOauthJWT) {
+        this.getOauthJWT = getOauthJWT;
+    }
+
+    public HttpServletRequest getRequestScopedIncomingHttpServletRequest() {
+        return requestScopedIncomingHttpServletRequest;
+    }
+
+    public void setRequestScopedIncomingHttpServletRequest(HttpServletRequest requestScopedIncomingHttpServletRequest) {
+        this.requestScopedIncomingHttpServletRequest = requestScopedIncomingHttpServletRequest;
+    }
+
+
+    @OAuthScope(allowedScope = RestUtil.OAUTH_SCOPE)
+    public ResponseEntity<GetPortimaOutput> getPortimaIDByProducerAccount( @PathVariable("producerAccountId") String producerAccountId,
+                                                                           @RequestHeader(value = "authorization", required = true) String authorization,
+                                                                           @RequestHeader(value = "Accept-Language", required = true) String acceptLanguage) {
+        Map<String, Object> claimMap = Jwt2ClaimUtil.getClaimMap(getOauthJWT);
+        Validate.notNull(claimMap, RestUtil.CLAIMMAP_EMPTY);
+        Jwt2ClaimUtil.isRequestAuthorized(claimMap);
+        HttpStatus status = HttpStatus.OK;
+
+
+        Validate.notNull(producerAccountId, "ProducerAccountID is null");
+        GetPortimaOutput portimaObj = new GetPortimaOutput();
+        try {
+            String portimaVo = logOnMgtService.getPortimaIDByProducerAccount(producerAccountId);
+
+
+            portimaObj.setPortimaID(portimaVo);
+            return new ResponseEntity<>(portimaObj, status);
+
+        } catch (IllegalArgumentException e) {
+            log.error("IllegalArgumentException in getPortimaIDByProducerAccount : {} {}", e.getMessage(), e);
+            status = HttpStatus.NO_CONTENT;
+        } catch (TechnicalException e) {
+            log.error("TechnicalException in getPortimaIDByProducerAccount-: {} {}", e.getMessage(), e);
+            status = HttpStatus.NO_CONTENT;
+        } catch (UserNotAllowedException e) {
+            log.error("UserNotAllowedException in getPortimaIDByProducerAccount-: {} {}", e.getMessage(), e);
+            status = HttpStatus.NO_CONTENT;
+        } catch (BusinessException e) {
+            log.error("BusinessException in getPortimaIDByProducerAccount-: {}", e.getMessage(), e);
+            status = HttpStatus.NO_CONTENT;
+        }
+
+        return new ResponseEntity<>(portimaObj, status);
+
+
+    }
+
+
+    @OAuthScope(allowedScope = RestUtil.OAUTH_SCOPE)
+    @Override
+    public ResponseEntity<UserDescriptionOutput> logOnUser( @RequestHeader(value = "authorization", required = true) String authorization,
+                                                            @RequestHeader(value = "Accept-Language", required = true) String acceptLanguage) {
+        Map<String, Object> claimMap = Jwt2ClaimUtil.getClaimMap(getOauthJWT);
+        Validate.notNull(claimMap, RestUtil.CLAIMMAP_EMPTY);
+        Jwt2ClaimUtil.isRequestAuthorized(claimMap);
+        HttpStatus status = HttpStatus.OK;
+        Validate.isTrue(StringUtils.isNotBlank(Jwt2ClaimUtil.fetchUser(claimMap)), "Jwt2ClaimUtil.fetchUser is null");
+
+        UserDescriptionOutput userDescriptionOutput = new UserDescriptionOutput();
+
+        BrokerUserVo brokeruserVo = new BrokerUserVo();
+
+        try {
+            brokeruserVo.setUserId(Jwt2ClaimUtil.fetchUser(claimMap));
+            brokeruserVo.setUserLanguage(Jwt2ClaimUtil.fetchPreferredLanguage(claimMap));
+            brokeruserVo.setRole(retrieveRole(Jwt2ClaimUtil.isBroker(claimMap)));
+            //take the name from token if not broker; take the CIF if broker
+            if (Boolean.FALSE.equals(Jwt2ClaimUtil.isBroker(claimMap))) {
+                brokeruserVo.setFirstName(Jwt2ClaimUtil.fetchGivenName(claimMap));
+                brokeruserVo.setLastName(Jwt2ClaimUtil.fetchLastName(claimMap));
+            } else {
+                brokeruserVo.setCifId(Jwt2ClaimUtil.fetchCifId(claimMap));
+            }
+
+
+            // By default we receive the language of application
+            // if it's an admin the language stay like that
+            // else we take language of user in ldap azimut
+            brokeruserVo.setApplicationLanguage(RestUtil.convertLanguageToId(acceptLanguage));
+            // log on the broker
+            BrokerUserVo logOnUserVo = logOnMgtService.logOnUser(brokeruserVo);
+
+            userDescriptionOutput.setIsPublicSector(logOnUserVo.getIsPublicSector());
+
+            // Set the code language to return to the front end
+            userDescriptionOutput.setLanguageCode(logOnUserVo.getUserLanguage());
+            userDescriptionOutput.setIsBroker(isBroker(logOnUserVo));
+            // Broker PORTIMA
+            userDescriptionOutput.setIsBrokerPortima(isBrokerPortima(logOnUserVo));
+            // Broker mail
+            userDescriptionOutput.setBrokerMail(logOnUserVo.getCollaboratorEmail());
+
+            // add the broker in the cache
+            cacheHelper.putUserInCache(logOnUserVo, authorization);
+            cacheHelper.getUserFromCache(authorization);
+            // to trigger the getcaching for  enable @cachesable no need to return anything
+            cacheHelper.putUserInCacheUpdate(logOnUserVo, authorization);
+
+            // put the producer account list in return
+            sortProducerNumberAndAddInOutputMessage(userDescriptionOutput, logOnUserVo.getProducerNumbers());
+
+            // put the mail for each producer/point of sale and add to output
+            addMailToProducer(userDescriptionOutput, logOnUserVo);
+
+        } catch (IllegalArgumentException e) {
+            log.error(e.getMessage(), e);
+            userDescriptionOutput.setErrorCode(ErrorCode.TECHNICAL_ERROR);
+
+            status = HttpStatus.NO_CONTENT;
+        } catch (UserNotAllowedException e) {
+            log.error("UserNotAllowedException in logOnUser-:  {} {}", e.getMessage(), e);
+            manageTracingOnLoging(brokeruserVo, e.getLocalizedMessage());
+            userDescriptionOutput.setErrorCode(ErrorCodePicasso.USER_NOT_ALLOWED);
+            status = HttpStatus.UNAUTHORIZED;
+        } catch (TechnicalException e) {
+            log.error("TechnicalException in logOnUser-: {} {}", e.getMessage(), e);
+            userDescriptionOutput.setErrorCode(ErrorCodePicasso.TECHNICAL_ERROR);
+            status = HttpStatus.NO_CONTENT;
+        } catch (Exception e) {
+            log.error("Exception in logOnUser-: {} {}", e.getMessage(), e);
+            userDescriptionOutput.setErrorCode(ErrorCodePicasso.TECHNICAL_ERROR);
+            status = HttpStatus.NO_CONTENT;
+        }
+
+        // return userDescriptionOutput without an error code to indicate that
+        // everything went well
+        log.info("logOnUser(userDescriptionOutput); {}", userDescriptionOutput);
+
+        return new ResponseEntity<>(userDescriptionOutput, status);
+    }
+
+
+    @OAuthScope(allowedScope = RestUtil.OAUTH_SCOPE)
+    @Override
+    public ResponseEntity<UserDescriptionOutput> logoffUser(@RequestHeader(value = "authorization", required = true) String authorization,
+                                                            @RequestHeader(value = "Accept-Language", required = true) String acceptLanguage) {
+        log.info("logoffUser(userDescriptionInput);");
+        Map<String, Object> claimMap = Jwt2ClaimUtil.getClaimMap(getOauthJWT);
+        Validate.notNull(claimMap, RestUtil.CLAIMMAP_EMPTY);
+        Jwt2ClaimUtil.isRequestAuthorized(claimMap);
+
+        HttpStatus status = HttpStatus.OK;
+
+        UserDescriptionOutput userDescriptionOutput = new UserDescriptionOutput();
+
+        try {
+            // retrieves the user from the cache based on the session's id
+            BrokerUserVo brokerUserVoOriginal = cacheHelper.getUserFromCache(authorization);
+            brokerUserVoOriginal.setApplicationLanguage(RestUtil.convertLanguageToId(acceptLanguage));
+
+            BrokerUserVo brokerUserVoFinal = logOnMgtService.logOffUser(brokerUserVoOriginal);
+
+            // put the user in the cache
+            cacheHelper.putUserInCacheUpdate(brokerUserVoFinal, authorization);
+            // reset the user language with original value
+            userDescriptionOutput.setLanguageCode(brokerUserVoFinal.getApplicationLanguage().toString());
+
+            // put the producer account list in return
+            sortProducerNumberAndAddInOutputMessage(userDescriptionOutput, brokerUserVoFinal.getProducerNumbers());
+
+        } catch (IllegalArgumentException | TechnicalException e) {
+            log.error(e.getMessage(), e);
+            userDescriptionOutput.setErrorCode(ErrorCodePicasso.TECHNICAL_ERROR);
+            status = HttpStatus.NO_CONTENT;
+        } catch (UserNotAllowedException e) {
+            log.error(e.getMessage(), e);
+            userDescriptionOutput.setErrorCode(ErrorCodePicasso.USER_NOT_ALLOWED);
+            status = HttpStatus.UNAUTHORIZED;
+        } catch (Exception e) {
+            log.error(e.getMessage(), e);
+            userDescriptionOutput.setErrorCode(ErrorCodePicasso.TECHNICAL_ERROR);
+            status = HttpStatus.NO_CONTENT;
+            log.debug("technical Exception");
+        }
+        // return userDescriptionOutput without an error code to indicate that
+        // everything went well
+        return new ResponseEntity<>(userDescriptionOutput, status);
+
+    }
+
+    /*@OAuthScope(allowedScope = RestUtil.OAUTH_SCOPE)
+    public ResponseEntity<RefreshBrokerOutput> refreshBrokerCache(@RequestBody RefreshBrokerInput refreshBrokerInput, @RequestHeader("authorization") String authorization) {
+        Map<String, Object> claimMap = Jwt2ClaimUtil.getClaimMap(getOauthJWT);
+        Validate.notNull(claimMap, RestUtil.CLAIMMAP_EMPTY);
+        Jwt2ClaimUtil.isRequestAuthorized(claimMap);
+
+        HttpStatus status = HttpStatus.OK;
+
+        Validate.notNull(refreshBrokerInput.getNewLanguage(), "refreshBrokerInput.getNewLanguage() is null");
+
+
+        RefreshBrokerOutput refreshBrokerOutput = new RefreshBrokerOutput();
+
+        try {
+
+
+            BrokerUserVo brokerUserVo = cacheHelper.getUserFromCache(authorization);
+
+            brokerUserVo.setApplicationLanguage(Integer.parseInt(refreshBrokerInput.getNewLanguage()));
+            // add the broker in the cache
+            cacheHelper.putUserInCacheUpdate(brokerUserVo, authorization);
+        } catch (BusinessException e) {
+            log.error("refreshBrokerCache : not possible to retrieve broberUserVo from cache !");
+            log.error("---> sessionID = {}", authorization);
+            refreshBrokerOutput.setErrorCode("0001");
+            status = HttpStatus.NO_CONTENT;
+            return new ResponseEntity<>(refreshBrokerOutput, status);
+
+        } catch (Exception e) {
+            log.error(e.getMessage(), e);
+            status = HttpStatus.NO_CONTENT;
+            refreshBrokerOutput.setErrorCode("0002");
+        }
+
+        refreshBrokerOutput.setErrorCode("0000");
+        return new ResponseEntity<>(refreshBrokerOutput, status);
+    }*/
+
+    @OAuthScope(allowedScope = RestUtil.OAUTH_SCOPE)
+    @Override
+    public ResponseEntity<UserDescriptionOutput> substitution(@PathVariable("brokerUser") String brokerUser,
+                                                              @RequestHeader(value = "authorization", required = true) String authorization,
+                                                              @RequestHeader(value = "Accept-Language", required = true) String acceptLanguage) {
+        Map<String, Object> claimMap = Jwt2ClaimUtil.getClaimMap(getOauthJWT);
+        Validate.notNull(claimMap, RestUtil.CLAIMMAP_EMPTY);
+        Jwt2ClaimUtil.isRequestAuthorized(claimMap);
+        HttpStatus status = HttpStatus.OK;
+        Validate.isTrue(StringUtils.isNotBlank(Jwt2ClaimUtil.fetchUser(claimMap)), "Jwt2ClaimUtil.fetchUser is null");
+        UserDescriptionOutput userDescriptionOutput = new UserDescriptionOutput();
+
+        // the manager
+        BrokerUserVo manager = new BrokerUserVo();
+
+        BrokerUserVo brokerUserVoOriginal = new BrokerUserVo();
+
+        try {
+
+            brokerUserVoOriginal = cacheHelper.getUserFromCache(authorization);
+            brokerUserVoOriginal.setApplicationLanguage(RestUtil.convertLanguageToId(acceptLanguage));
+
+            manager.setUserId(brokerUser);
+            manager.setApplicationLanguage(RestUtil.convertLanguageToId(acceptLanguage));
+            //check if we are getting userlanguage from DIF
+           // manager.setUserLanguage(userDescriptionInput.getUserLanguage());
+            manager.setRole(retrieveRole(true));
+
+            // substitute
+            BrokerUserVo substitutedUserVo = logOnMgtService.substitute(brokerUserVoOriginal, manager);
+
+            userDescriptionOutput.setIsPublicSector(substitutedUserVo.getIsPublicSector());
+
+            cacheHelper.putUserInCacheUpdate(substitutedUserVo, authorization);
+
+            // update the code language
+            userDescriptionOutput.setLanguageCode(substitutedUserVo.getUserLanguage());
+
+            // Broker PORTIMA
+            userDescriptionOutput.setIsBrokerPortima(isBrokerPortima(substitutedUserVo));
+            // Broker mail
+            userDescriptionOutput.setBrokerMail(substitutedUserVo.getCollaboratorEmail());
+
+            // put the producer account list in return
+            sortProducerNumberAndAddInOutputMessage(userDescriptionOutput, substitutedUserVo.getProducerNumbers());
+
+            // put the mail for each producer/point of sale and add to output
+            addMailToProducer(userDescriptionOutput, substitutedUserVo);
+
+        } catch (IllegalArgumentException | TechnicalException e) {
+            log.error(e.getMessage(), e);
+            userDescriptionOutput.setErrorCode(ErrorCodePicasso.TECHNICAL_ERROR);
+            userDescriptionOutput.setErrorMessage(TECHNICAL_ERROR);
+            status = HttpStatus.NO_CONTENT;
+        } catch (UserNotAllowedException e) {
+            userDescriptionOutput.setErrorCode(ErrorCodePicasso.USER_NOT_ALLOWED);
+            manager.setSubstituter(brokerUserVoOriginal);
+            String message = manageTracingOnLoging(manager, e.getLocalizedMessage());
+            userDescriptionOutput.setErrorMessage(message);
+            Set<?> set = e.getTechnicalInfo();
+            status = HttpStatus.UNAUTHORIZED;
+            Iterator<?> itr = set.iterator();
+            userDescriptionOutput = setErrorTechInUserDescription(itr, userDescriptionOutput);
+        } catch (BusinessException e) {
+            log.error("BusinessException in Substituion-: {} {}", e.getMessage(), e);
+            userDescriptionOutput.setErrorCode(ErrorCodePicasso.TECHNICAL_ERROR);
+            userDescriptionOutput.setErrorMessage(TECHNICAL_ERROR);
+            status = HttpStatus.NO_CONTENT;
+        } catch (Exception e) {
+            log.error("Exception in Substituion-: {} {}", e.getMessage(), e);
+            userDescriptionOutput.setErrorCode(ErrorCodePicasso.TECHNICAL_ERROR);
+            userDescriptionOutput.setErrorMessage(TECHNICAL_ERROR);
+            status = HttpStatus.NO_CONTENT;
+        }
+
+        // return userDescriptionOutput without an error code to indicate that
+        // everything went well
+        return new ResponseEntity<>(userDescriptionOutput, status);
+    }
+
+    private String isBroker(BrokerUserVo brokerUserVo) {
+
+        String isBroker = "N";
+        if (brokerUserVo.getCifId() != null && !brokerUserVo.getCifId().isEmpty()) {
+            isBroker = "Y";
+            return isBroker;
+        }
+        return isBroker;
+    }
+
+    private IRole retrieveRole(boolean isBroker) {
+
+        if (isBroker) {
+            return new RoleBroker();
+        }
+
+        // the broker has a role of administrator
+        return new RoleAdmin();
+    }
+
+
+    private String isBrokerPortima(BrokerUserVo brokerUserVo) {
+
+        String isPortima = "N";
+
+        Set<?> pointOfSaleSet = brokerUserVo.getPointOfSales();
+
+        PointOfSaleMinType[] objectArray = pointOfSaleSet
+                .toArray(new PointOfSaleMinType[pointOfSaleSet.size()]);
+
+        for (int i = 0; i < objectArray.length; i++) {
+            PointOfSaleMinType pointOfSaleMinType = objectArray[i];
+            String portimaId = pointOfSaleMinType.getPortimaid();
+            if (portimaId != null && !portimaId.trim().isEmpty()) {
+                isPortima = "Y";
+                return isPortima;
+            }
+        }
+
+        return isPortima;
+
+    }
+
+    private void sortProducerNumberAndAddInOutputMessage(
+            UserDescriptionOutput output, Set<String> producerNumbers) {
+
+        if (!CollectionUtils.isEmpty(producerNumbers)) {
+
+            // create a list of String representing the producer number
+            List<ProducerNumberDescription> prodNumberList = new ArrayList<>(producerNumbers.size());
+
+            for (Iterator<String> it = producerNumbers.iterator(); it.hasNext(); ) {
+                String prodNumberAndName = it.next();
+                ProducerNumberDescription prodNumberDescription = new ProducerNumberDescription();
+                String prodNumber = prodNumberAndName.substring(0, prodNumberAndName.indexOf("("));
+                prodNumberDescription.setProducerNumber(prodNumber.trim());
+                prodNumberDescription.setProducerNumberAndName(prodNumberAndName.trim());
+                prodNumberList.add(prodNumberDescription);
+            }
+
+            // sort the list of producer number
+            Collections.sort(prodNumberList);
+
+            // add the list to the output
+            List<Object> prodNumberObjectList = prodNumberList.stream()
+                    .map(p -> (Object) p)
+                    .collect(Collectors.toList());
+
+            output.setProducerNumbers(prodNumberObjectList);
+        }
+    }
+
+    private void addMailToProducer(UserDescriptionOutput output, BrokerUserVo brokerUserVo) {
+
+        Set<?> pointOfSaleList = brokerUserVo.getPointOfSales();
+
+        List<?> producers = output.getProducerNumbers();
+
+        if (producers != null) {
+            for (Iterator<?> it = producers.iterator(); it.hasNext(); ) {
+                ProducerNumberDescription producerNumberDescription = (ProducerNumberDescription) it.next();
+
+                producerNumberDescription
+                        .setMailingAdres(findMailAdresByProducer(producerNumberDescription, pointOfSaleList));
+
+            }
+        }
+    }
+
+    private List<BusinessManagerDescription> findMailAdresByProducer(ProducerNumberDescription producerNumberDescription, Set<?> pointOfSaleList) {
+        List<BusinessManagerDescription> rc = new ArrayList<>();
+
+
+        String temp = producerNumberDescription.getProducerNumberAndName();
+        temp = StringUtils.replace(temp, ")", "");
+        String pointOfSaleName = temp.substring(temp.indexOf("(") + 1);
+
+        for (Iterator<?> it = pointOfSaleList.iterator(); it.hasNext(); ) {
+            PointOfSaleMinType pointOfSale = (PointOfSaleMinType) it.next();
+            if (pointOfSale.getName().equals(pointOfSaleName) && (pointOfSale.getEmailBusinessManager() != null)
+                    && (!pointOfSale.getEmailBusinessManager().isEmpty())) {
+                BusinessManagerDescription businessManagerDescription = new BusinessManagerDescription();
+                int size = pointOfSale.getEmailBusinessManager().size();
+                for (int i = 0; i < size; i++) {
+
+                    String mailAdress = (String) pointOfSale.getEmailBusinessManager().get(i);
+
+                    businessManagerDescription.setBusinessManagerMail(mailAdress.trim());
+                    businessManagerDescription
+                            .setBusinessManagerMailAndName((String) pointOfSale.getEmailBusinessManager().get(i));
+                    rc.add(businessManagerDescription);
+                }
+                if (checkEmailAccountOfPointOfSaleMinType(pointOfSale)) {
+                    businessManagerDescription = new BusinessManagerDescription();
+                    businessManagerDescription.setBusinessManagerMail(pointOfSale.getEmailAccount().trim());
+                    businessManagerDescription.setBusinessManagerMailAndName(pointOfSale.getEmailAccount());
+                    rc.add(businessManagerDescription);
+                }
+            }
+
+
+        }
+
+        return rc;
+    }
+
+    private boolean checkEmailAccountOfPointOfSaleMinType(PointOfSaleMinType pointOfSale) {
+        return (pointOfSale.getEmailAccount() != null) && (!"XYZ".equals(pointOfSale.getEmailAccount()));
+    }
+
+    private String manageTracingOnLoging(BrokerUserVo brokeruserVo, String message) {
+
+        String sepFR = Constants.ERR_LOGON_PREFIX_FR;
+        String sepNL = Constants.ERR_LOGON_PREFIX_NL;
+
+        int lengthFR = sepFR.length();
+        int lengthNL = sepNL.length();
+
+        if ((message.indexOf(sepFR) > -1) && (message.indexOf(sepNL) > -1)) {
+            Integer language = brokeruserVo.getApplicationLanguage();
+            if (language.intValue() == 1) {
+                int i = message.indexOf(sepFR);
+                message = message.substring(i + lengthFR);
+                i = message.indexOf(sepNL);
+                message = getMessage(message, i);
+            } else {
+                int i = message.indexOf(sepNL);
+                message = message.substring(i + lengthNL);
+                i = message.indexOf(sepFR);
+                if (i > -1) {
+                    message = message.substring(0, i);
+                }
+            }
+        }
+
+        while ((message.indexOf("{") > -1) && (message.indexOf("}") > -1)) {
+            int i = message.indexOf("{");
+            int j = message.indexOf("}");
+            String brokerUserVoAttribute = message.substring(i + 1, j);
+            if (brokerUserVoAttribute.equalsIgnoreCase("userId")) {
+                message = StringUtils.replace(message, "{" + brokerUserVoAttribute + "}", brokeruserVo.getUserId());
+            } else if (brokerUserVoAttribute.equalsIgnoreCase("mainProducerNumber")) {
+                message = StringUtils.replace(message, "{" + brokerUserVoAttribute + "}",
+                        brokeruserVo.getMainProducerNumber());
+            }
+        }
+
+        brokeruserVo.setErrorLoginMessage(message);
+
+        log.error(
+                " ------------------------------------------- Logon report failure -----------------------------------------");
+        log.error(brokeruserVo);
+        log.error(
+                " ------------------------------------------- Logon report failure -----------------------------------------");
+
+        return message;
+    }
+
+    private static String getMessage(String message, int i) {
+        if (i > -1) {
+            message = message.substring(0, i);
+        }
+        return message;
+    }
+
+    private UserDescriptionOutput setErrorTechInUserDescription(Iterator<?> itr, UserDescriptionOutput userDescriptionOutput) {
+        int i = 0;
+        while (itr.hasNext()) {
+            i = i + 1;
+            if (i == 1) {
+                userDescriptionOutput.setErrorTech1((String) itr.next());
+            } else if (i == 2) {
+                userDescriptionOutput.setErrorTech2((String) itr.next());
+            } else if (i == 3) {
+                userDescriptionOutput.setErrorTech3((String) itr.next());
+            } else if (i == 4) {
+                userDescriptionOutput.setErrorTech4((String) itr.next());
+            } else if (i == 5) {
+                userDescriptionOutput.setErrorTech5((String) itr.next());
+            } else {
+                itr.next();
+            }
+        }
+        return userDescriptionOutput;
+    }
+
+
+}
+
+
+
+
+package be.axa.pccorp.eservicing.clink.tool;
+
+
+
+
+import be.axa.pccorp.eservicing.clink.model.exception.BusinessException;
+
+
+import be.axa.pccorp.eservicing.clink.model.exception.ErrorCode;
+import be.axa.pccorp.eservicing.clink.soapadapter.type.BrokerUserVo;
+import be.axa.pccorp.eservicing.clink.util.Encrypter;
+import be.axa.pccorp.eservicing.clink.vo.FeeContext;
+import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.lang3.Validate;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.CachePut;
+import org.springframework.cache.annotation.Cacheable;
+import org.springframework.stereotype.Component;
+
+
+@Component
+public class CacheHelper implements ICacheHelper {
+
+
+    private static final Logger logger = LogManager.getLogger(CacheHelper.class);
+    private Encrypter encrypter = null;
+
+
+    @Cacheable(value = "userCache", key = "#p0", unless = "#result == null")
+    public BrokerUserVo getUserFromCache(String token) throws BusinessException {
+        logger.info("getUserFromCache(sessionId); {}", token);
+
+        Validate.isTrue(StringUtils.isNotBlank(token), "sessionId is null");
+
+
+        BrokerUserVo brokerUserVo=null;
+        BrokerUserVo brokerUserVo1=null;
+        try {
+            brokerUserVo1 = putUserInCache(brokerUserVo,token);
+
+        } catch (IllegalArgumentException exc) {
+            BusinessException fee = new BusinessException();
+
+            fee.setMessage(ErrorCode.USER_NOT_CONNECTED);
+            throw fee;
+        }
+
+
+        if (brokerUserVo1 == null) {
+            BusinessException fee = new BusinessException();
+            fee.setMessage(ErrorCode.USER_NOT_CONNECTED);
+            throw fee;
+        }
+
+        return brokerUserVo1;
+    }
+
+
+    @Cacheable(value = "userCache", key = "#p1", unless = "#result == null")
+    public BrokerUserVo putUserInCache(BrokerUserVo brokerUserVo, String token) {
+        // create a fee context
+        logger.info("put UserCache Called");
+        FeeContext feeContext = new FeeContext();
+        feeContext.setBrokerUserVo(brokerUserVo);
+
+        return feeContext.getBrokerUserVo();
+    }
+
+    @CachePut(value = "userCache", key = "#p1", unless = "#result == null")
+    public BrokerUserVo putUserInCacheUpdate(BrokerUserVo brokerUserVo, String token) {
+        // create a fee context
+        logger.info("put UserCacheUpdate Called");
+        FeeContext feeContext = new FeeContext();
+        feeContext.setBrokerUserVo(brokerUserVo);
+        this.encrypter = new Encrypter(brokerUserVo.getUserId());
+        return feeContext.getBrokerUserVo();
+    }
+
+    @Override
+    @CacheEvict(cacheNames = {"userCache"} ,allEntries = true)
+    public void clearCache() {
+        logger.info("Cache Cleared");
+    }
+    @Override
+    public Encrypter getEncrypter() {
+        return this.encrypter;
+    }
+}
+
+
+
+
+package be.axa.pccorp.eservicing.clink;
+
+import be.axa.common.oauth.annotation.OAuthScope;
+import be.axa.et.security.oauth2.IGetOauth2JWT;
+import be.axa.pccorp.eservicing.clink.api.UploadHistoryApi;
+import be.axa.pccorp.eservicing.clink.model.UploadHistoryInOut;
+import be.axa.pccorp.eservicing.clink.model.bo.DocumentUploadHistoryVo;
+import be.axa.pccorp.eservicing.clink.model.bo.UploadHistoryVo;
+import be.axa.pccorp.eservicing.clink.model.exception.BusinessException;
+import be.axa.pccorp.eservicing.clink.model.exception.ErrorCode;
+import be.axa.pccorp.eservicing.clink.model.UploadHistoryDescription;
+import be.axa.pccorp.eservicing.clink.service.IBrokerDocumentService;
+import be.axa.pccorp.eservicing.clink.service.IBrokerFolderService;
+import be.axa.pccorp.eservicing.clink.service.IUploadHistoryService;
+import be.axa.pccorp.eservicing.clink.soapadapter.type.BrokerUserVo;
+import be.axa.pccorp.eservicing.clink.soapadapter.vo.BrokerDocumentVo;
+import be.axa.pccorp.eservicing.clink.tool.ICacheHelper;
+import be.axa.pccorp.eservicing.clink.util.Jwt2ClaimUtil;
+import be.axa.pccorp.eservicing.clink.util.RestUtil;
+import org.apache.commons.lang3.Validate;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.RequestHeader;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+import java.text.ParseException;
+import java.text.SimpleDateFormat;
+import java.util.*;
+
+@RestController
+@RequestMapping("/v1")
+public class UploadHistoryController implements UploadHistoryApi {
+
+    private final Logger LOG = LogManager.getLogger(UploadHistoryController.class);
+
+    private static final String DATE_FORMAT = "yyyyMMdd";
+
+    @Autowired
+    private IUploadHistoryService uploadHistoryService;
+
+    @Autowired
+    private IBrokerDocumentService brokerDocumentService;
+
+    @Autowired
+    private IBrokerFolderService brokerFolderService;
+
+    @Autowired
+    private ICacheHelper cacheHelper;
+
+    private final IGetOauth2JWT getOauthJWT;
+
+    public UploadHistoryController(IGetOauth2JWT getOauthJWT) {
+        this.getOauthJWT = getOauthJWT;
+    }
+
+    private class MonComparator implements Comparator {
+
+        MonComparator() {
+            // empty constructor
+        }
+
+        public int compare(Object arg0, Object arg1) {
+            try {
+                UploadHistoryDescription uploadHistoryDescription1 = (UploadHistoryDescription) arg0;
+                UploadHistoryDescription uploadHistoryDescription2 = (UploadHistoryDescription) arg1;
+
+                SimpleDateFormat dateFormat = new SimpleDateFormat(DATE_FORMAT);
+                Date strToDate1 = uploadHistoryDescription1.getUploadDate() != null ? dateFormat.parse(uploadHistoryDescription1
+                        .getUploadDate()) : null;
+                Date strToDate2 = uploadHistoryDescription2.getUploadDate() != null ? dateFormat.parse(uploadHistoryDescription2
+                        .getUploadDate()) : null;
+
+                if (strToDate1 == null || strToDate2==null){
+                    if (strToDate1== null && strToDate2 == null){
+                        return 0;
+                    }
+                    else if (strToDate1 == null) {
+                        return -1;
+                    }
+                    else {
+                        return 1;
+                    }
+                }
+                else {
+                    int result = strToDate1.compareTo(strToDate2);
+                    if (result != 0)
+                        return result;
+                }
+            }
+            catch (ParseException e) {
+                return 0;
+            }
+            return 0;
+        }
+
+    }
+
+    private UploadHistoryInOut formattedException(BusinessException outExc) {
+        LOG.error("formattedException: " + outExc.getLocalizedMessage(), outExc);
+
+        UploadHistoryInOut uploadHistoryInOut = new UploadHistoryInOut();
+        String jbcMsgCode = outExc.getMessage();
+
+        // interprete the FEE exception into a picasso exception
+        if (ErrorCode.DOC_404.equals(jbcMsgCode)) {
+            // Do nothing to continue the loop
+        } else if (ErrorCode.USR_404.equals(jbcMsgCode)) {
+            uploadHistoryInOut.setErrorCode(ErrorCode.FOLDER_NO_EXIST);
+        } else if (ErrorCode.DOC_503.equals(jbcMsgCode) || ErrorCode.USR_503.equals(jbcMsgCode)) {
+            uploadHistoryInOut.setErrorCode(ErrorCode.TECHNICAL_ERROR);
+        } else if (ErrorCode.DOC_500.equals(jbcMsgCode) || ErrorCode.USR_500.equals(jbcMsgCode)) {
+            uploadHistoryInOut.setErrorCode(ErrorCode.TECHNICAL_ERROR);
+        } else if (ErrorCode.DOCLIST_EMPTY.equals(jbcMsgCode)) {
+            uploadHistoryInOut.setErrorCode(ErrorCode.NO_DOCUMENT_IN_FOLDER);
+        } else if (ErrorCode.ERROR_NO_PROD.equals(jbcMsgCode)) {
+            uploadHistoryInOut.setErrorCode(ErrorCode.PRODUCER_NOT_PRODUCER_NBR_AZM);
+        } else if (ErrorCode.FOLDER_LOCKED.equals(jbcMsgCode)) {
+            uploadHistoryInOut.setErrorCode(ErrorCode.FOLDER_IS_LOCKED);
+        } else if (ErrorCode.USER_NOT_CONNECTED.equals(jbcMsgCode)) {
+            uploadHistoryInOut.setErrorCode(ErrorCode.USER_NOT_CONNECTED);
+        } else if (ErrorCode.WS_EXCEPTION_CODE.equals(jbcMsgCode)) {
+            uploadHistoryInOut.setErrorCode(ErrorCode.WS_EXCEPTION);
+        } else {
+            uploadHistoryInOut.setErrorCode(ErrorCode.TECHNICAL_ERROR);
+        }
+
+        return uploadHistoryInOut;
+    }
+
+
+    private List retrieveDocumentArrayInformation(BrokerUserVo brokerUserVo, String[] documentIds) {
+        // Call to GDservices
+        ArrayList uploadHistory = new ArrayList();
+        try {
+
+            List brokerDocumentList = brokerDocumentService.retrieveDocumentArrayAttributesAndLabels(brokerUserVo, documentIds);
+
+            for (int i = 0; i < brokerDocumentList.size(); i++) {
+                UploadHistoryDescription uploadHistoryDescription = new UploadHistoryDescription();
+                BrokerDocumentVo brokerDocumentVo = (BrokerDocumentVo) brokerDocumentList.get(i);
+                uploadHistoryDescription.setFolderType(brokerDocumentVo.getDocumenttypeLabel());
+                uploadHistoryDescription.setRefFolder(brokerDocumentVo.getFoldername());
+                uploadHistoryDescription.setStatus(brokerDocumentVo.getStatusLabel());
+                uploadHistoryDescription.setImperativeDate(brokerDocumentVo.getImperativedate());
+                uploadHistoryDescription.setUploadDate(brokerDocumentVo.getEntrydate());
+                uploadHistoryDescription.setIdFolderType(brokerDocumentVo.getIdFolderType());
+                uploadHistoryDescription.setDescription(brokerDocumentVo.getDocumentname());
+                uploadHistoryDescription.setDocumentId(brokerDocumentVo.getObjectId());
+                uploadHistoryDescription.setUploadHour(brokerDocumentVo.getEntryhour());
+                if (brokerDocumentVo.getImspolicynumber() != null) {
+                    uploadHistoryDescription.setImsPolicyNumber(brokerDocumentVo.getImspolicynumber());
+                } else {
+                    uploadHistoryDescription.setImsPolicyNumber("");
+                }
+                uploadHistory.add(uploadHistoryDescription);
+            }
+            return uploadHistory;
+        } catch (BusinessException outExc) {
+            LOG.error("-- Error in UploadHistoryFacade : " + outExc);
+            return null;
+        }
+    }
+
+    @OAuthScope(allowedScope = RestUtil.OAUTH_SCOPE)
+    @Override
+    public ResponseEntity<UploadHistoryInOut> uploadHistoryByBrokerId(@RequestHeader("authorization") String authorization,
+                                                                     @RequestHeader(value = "Accept-Language", required = true) String acceptLanguage) {
+        Map<String, Object> claimMap = Jwt2ClaimUtil.getClaimMap( getOauthJWT );
+        Validate.notNull(claimMap, "claimMap is empty");
+        Jwt2ClaimUtil.isRequestAuthorized(claimMap);
+        HttpStatus status = HttpStatus.OK;
+        UploadHistoryInOut uploadHistoryInOut = new UploadHistoryInOut();
+
+        try {
+
+            BrokerUserVo brokerUserVo = cacheHelper.getUserFromCache(authorization);
+            brokerUserVo.setApplicationLanguage(RestUtil.convertLanguageToId(acceptLanguage));
+
+            List<UploadHistoryVo> uploadHistoryList = uploadHistoryService.retrieveUploadHistoryByBrokerId(brokerUserVo);
+
+            // If no documents, return error code
+            if (uploadHistoryList == null || uploadHistoryList.isEmpty()) {
+                uploadHistoryInOut.setErrorCode("No Documents available");
+                status = HttpStatus.NO_CONTENT;
+                return new ResponseEntity<>(uploadHistoryInOut, status);
+            }
+
+            this.uploadHistoryCommon(uploadHistoryList, uploadHistoryInOut, status, brokerUserVo);
+
+        } catch (BusinessException outExc) {
+            status = extractStatusForCatch(outExc);
+            return new ResponseEntity<>(formattedException(outExc), status);
+        }
+        return new ResponseEntity<>(uploadHistoryInOut, status);
+    }
+
+    private void uploadHistoryCommon(List<UploadHistoryVo> uploadHistoryList, UploadHistoryInOut uploadHistoryInOut, HttpStatus status, BrokerUserVo brokerUserVo) {
+
+        boolean bLimitedList = false;
+
+        List<String> folderListTreated = new ArrayList<String>();
+        List uploadHistoryDescriptionList = new ArrayList();
+        List documentsId = new ArrayList();
+        HashMap brokerReferenceMap = new HashMap();
+        HashMap folderTypeMap = new HashMap();
+        HashMap producerReferenceMap = new HashMap();
+        List<UploadHistoryDescription> uploadHistoryListFinal = new ArrayList<UploadHistoryDescription>();
+
+        int counterDocument = 0;
+        int limit = 1000; // Because something go wrong if no limit (1000
+        // values in an IN clause of the SQL's order).
+
+        for (Iterator uploadIterator = uploadHistoryList.iterator(); uploadIterator.hasNext(); ) {
+            UploadHistoryVo uploadHistoryVo = (UploadHistoryVo) uploadIterator.next();
+
+            List documentUploadHistoryList = uploadHistoryVo.getDocumentUploadHistoryList();
+
+            for (Iterator iter = documentUploadHistoryList.iterator(); iter.hasNext(); ) {
+                counterDocument++;
+                DocumentUploadHistoryVo documentUploadHistoryVo = (DocumentUploadHistoryVo) iter.next();
+                String documentId = documentUploadHistoryVo.getDocumentId();
+
+                if (counterDocument <= limit) {
+                    setUploadHistoryService(documentsId, documentId, brokerReferenceMap, folderTypeMap,
+                            producerReferenceMap, uploadHistoryVo, documentUploadHistoryVo, uploadHistoryDescriptionList);
+                } else {
+                    bLimitedList = true;
+                }
+            }
+        }
+
+        // Convert List into String[]
+        String[] docs = new String[documentsId.size()];
+        setDocsValues(docs, documentsId);
+
+        if (docs.length > 0) {
+
+            // Call GDservices to retrieve document's description
+            List uploadHistoryDescriptionListResult = retrieveDocumentArrayInformation(brokerUserVo, docs);
+            throwExceptionForNull(uploadHistoryDescriptionListResult);
+            setUploadHistoryList(uploadHistoryDescriptionListResult, brokerReferenceMap, producerReferenceMap,
+                    folderTypeMap, folderListTreated, uploadHistoryDescriptionList);
+
+            // retrieve the information from GD for the folder
+            setUploadHistoryLists(folderListTreated, uploadHistoryDescriptionList, uploadHistoryListFinal);
+
+            // Sort the list by date descending
+            Collections.sort(uploadHistoryListFinal, new MonComparator());
+
+            uploadHistoryInOut.setUploadHistoryList(uploadHistoryListFinal);
+            setLimitList(bLimitedList, uploadHistoryInOut);
+
+        }
+    }
+    private void setUploadHistoryService (List documentsId, String documentId, HashMap brokerReferenceMap, HashMap folderTypeMap,
+                                          HashMap producerReferenceMap, UploadHistoryVo uploadHistoryVo,
+                                          DocumentUploadHistoryVo documentUploadHistoryVo, List uploadHistoryDescriptionList){
+
+            if(documentId != null && !documentId.isEmpty()) {
+                documentsId.add(documentId);
+                brokerReferenceMap.put(documentId, uploadHistoryVo.getBrokerReference());
+                folderTypeMap.put(documentId, documentUploadHistoryVo.getFolderType());
+                producerReferenceMap.put(documentId, uploadHistoryVo.getProducerReference());
+            } else {
+                UploadHistoryDescription uploadHistoryDescription = new  UploadHistoryDescription();
+                uploadHistoryDescription.setEnvelopeId(documentUploadHistoryVo.getEnvelopeId());
+                uploadHistoryDescription.setSequence(documentUploadHistoryVo.getSequence());
+                uploadHistoryDescription.setBrokerReference(uploadHistoryVo.getBrokerReference());
+                uploadHistoryDescription.setProducerNumber(uploadHistoryVo.getProducerReference());
+                SimpleDateFormat dateFormat = new SimpleDateFormat(DATE_FORMAT);
+                String formattedDate = dateFormat.format(uploadHistoryVo.getEntryDate());
+                uploadHistoryDescription.setUploadDate(formattedDate);
+                uploadHistoryDescription.setStatus(documentUploadHistoryVo.getStatusCode());
+                SimpleDateFormat hourFormat = new SimpleDateFormat("HH:mm:ss");
+                String formattedHour = hourFormat.format(uploadHistoryVo.getEntryDate());
+                uploadHistoryDescription.setUploadHour(formattedHour);
+                uploadHistoryDescriptionList.add(uploadHistoryDescription);
+            }
+        }
+
+    private void setUploadHistoryList(List uploadHistoryDescriptionListResult, HashMap brokerReferenceMap,
+                                      HashMap producerReferenceMap, HashMap folderTypeMap, List<String> folderListTreated,
+                                      List uploadHistoryDescriptionList) {
+
+        for (int j = 0; j < uploadHistoryDescriptionListResult.size(); j++) {
+
+            UploadHistoryDescription uploadHistoryDescription = (UploadHistoryDescription) uploadHistoryDescriptionListResult
+                    .get(j);
+            uploadHistoryDescription.setBrokerReference((String) brokerReferenceMap.get(uploadHistoryDescription
+                    .getDocumentId()));
+            uploadHistoryDescription.setProducerNumber((String) producerReferenceMap.get(uploadHistoryDescription
+                    .getDocumentId()));
+            Long temp = (Long) folderTypeMap.get(uploadHistoryDescription.getDocumentId());
+            uploadHistoryDescription.setIdFolderType(temp.toString());
+            addRefFolder(uploadHistoryDescription, folderListTreated);
+            uploadHistoryDescriptionList.add(uploadHistoryDescription);
+        }
+    }
+
+    private static void setDocsValues(String[] docs, List documentsId) {
+        for (int i = 0; i < docs.length; i++) {
+            docs[i] = (String) documentsId.get(i);
+        }
+    }
+
+    private  HttpStatus extractStatusForCatch(BusinessException outExc) {
+        HttpStatus status;
+        LOG.error("Error in retrieveUploadHistory: " + outExc);
+        status = HttpStatus.NO_CONTENT;
+        if (outExc.getMessage().equals(ErrorCode.USER_NOT_CONNECTED)) {
+            status = HttpStatus.UNAUTHORIZED;
+        }
+        return status;
+    }
+
+    private static void setLimitList(boolean bLimitedList, UploadHistoryInOut uploadHistoryInOut) {
+        if (bLimitedList) {
+            uploadHistoryInOut.setLimitedList("1");
+        } else {
+            uploadHistoryInOut.setLimitedList("0");
+        }
+    }
+
+    private void setUploadHistoryLists(List<String> folderListTreated, List uploadHistoryDescriptionList, List uploadHistoryListFinal) throws BusinessException{
+        if (folderListTreated.size() > 0) {
+            HashMap folderDescriptionFromGd = brokerFolderService
+                    .retrieveFolderDerscriptionListForFolderReferenceList(folderListTreated);
+            LOG.debug("folderDescriptionFromGdfolderDescriptionFromGd = " + folderDescriptionFromGd);
+            for (int i = 0; i < uploadHistoryDescriptionList.size(); i++) {
+                UploadHistoryDescription uploadHistoryVo = (UploadHistoryDescription) uploadHistoryDescriptionList.get(i);
+
+                setUploadHistoryListsInFinal(uploadHistoryVo, folderDescriptionFromGd, uploadHistoryListFinal);
+            }
+        }
+    }
+
+    private void setUploadHistoryListsInFinal(UploadHistoryDescription uploadHistoryVo, HashMap folderDescriptionFromGd,
+                                         List uploadHistoryListFinal){
+        //Encrypt DocumentID or EnvelopeID
+        String documentId = uploadHistoryVo.getDocumentId();
+        if (documentId != null && !documentId.isEmpty()) {
+            String encryptedDocumentId = this.cacheHelper.getEncrypter().encrypt(documentId);
+            uploadHistoryVo.setDocumentId(encryptedDocumentId);
+        }
+
+        String envelopeId = uploadHistoryVo.getEnvelopeId();
+        if (envelopeId != null && !envelopeId.isEmpty()) {
+            String encryptedEnvelopeId = this.cacheHelper.getEncrypter().encrypt(envelopeId);
+            uploadHistoryVo.setEnvelopeId(encryptedEnvelopeId);
+        }
+
+        LOG.debug("uploadHistoryVo = " + uploadHistoryVo);
+        setUploadHistoryVoProperties(uploadHistoryVo, folderDescriptionFromGd);
+        uploadHistoryListFinal.add(uploadHistoryVo);
+    }
+
+    private static void throwExceptionForNull(List uploadHistoryDescriptionListResult) {
+        if(uploadHistoryDescriptionListResult == null){
+            throw new BusinessException(ErrorCode.WS_EXCEPTION_CODE, "uploadHistoryDescriptionListResult is NULL");
+        }else if(uploadHistoryDescriptionListResult.isEmpty()){
+            throw new BusinessException("uploadHistoryDescriptionListResult is empty");
+        }
+    }
+
+
+    @OAuthScope(allowedScope = RestUtil.OAUTH_SCOPE)
+    @Override
+    public ResponseEntity<UploadHistoryInOut> uploadHistoryByProducerAccount(@RequestHeader("authorization") String authorization,
+                                                                             @RequestHeader(value = "Accept-Language", required = true) String acceptLanguage) {
+        Map<String, Object> claimMap = Jwt2ClaimUtil.getClaimMap( getOauthJWT );
+        Validate.notNull(claimMap, "claimMap is empty");
+        Jwt2ClaimUtil.isRequestAuthorized(claimMap);
+        HttpStatus status = HttpStatus.OK;
+        UploadHistoryInOut uploadHistoryInOut = new UploadHistoryInOut();
+
+        try {
+
+            BrokerUserVo brokerUserVo = cacheHelper.getUserFromCache(authorization);
+            brokerUserVo.setApplicationLanguage(RestUtil.convertLanguageToId(acceptLanguage));
+
+            List<UploadHistoryVo> uploadHistoryList = uploadHistoryService.retrieveUploadHistoryByProducerAccount(brokerUserVo);
+
+            // If no documents, return error code
+            if (uploadHistoryList == null || uploadHistoryList.isEmpty()) {
+                uploadHistoryInOut.setErrorCode("No Documents available");
+                status = HttpStatus.NO_CONTENT;
+                return new ResponseEntity<>(uploadHistoryInOut, status);
+            }
+
+            this.uploadHistoryCommon(uploadHistoryList, uploadHistoryInOut, status, brokerUserVo);
+
+        } catch (BusinessException outExc) {
+            LOG.error("Error in retrieveUploadHistory: " + outExc);
+            status = HttpStatus.NO_CONTENT;
+            if (outExc.getMessage().equals(ErrorCode.USER_NOT_CONNECTED)) {
+                status = HttpStatus.UNAUTHORIZED;
+            }
+            return new ResponseEntity<>(formattedException(outExc), status);
+        }
+        return new ResponseEntity<>(uploadHistoryInOut, status);
+    }
+
+    private static void setDocValues(String[] docs, List documentsId) {
+        for (int i = 0; i < docs.length; i++) {
+            docs[i] = (String) documentsId.get(i);
+        }
+    }
+
+
+    private void addRefFolder(UploadHistoryDescription uploadHistoryDescription, List<String> folderListTreated) {
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("brokerReference= " + uploadHistoryDescription.getBrokerReference());
+            LOG.debug("produceNumber= " + uploadHistoryDescription.getProducerNumber());
+        }
+        if (!folderListTreated.contains(uploadHistoryDescription.getRefFolder())) {
+            folderListTreated.add(uploadHistoryDescription.getRefFolder());
+        }
+    }
+
+    private void setUploadHistoryVoProperties(UploadHistoryDescription uploadHistoryVo, HashMap folderDescriptionFromGd) {
+        if (uploadHistoryVo.getRefFolder() != null) {
+            List folderPropertiesList = (List) folderDescriptionFromGd.get(uploadHistoryVo.getRefFolder());
+            if (LOG.isDebugEnabled())
+                LOG.debug("folderPropertiesList from GD= " + folderPropertiesList);
+            if(folderPropertiesList!=null && !folderPropertiesList.isEmpty() ){
+                uploadHistoryVo.setInsuredName((String) folderPropertiesList.get(0));
+                uploadHistoryVo.setInsuranceProductName((String) folderPropertiesList.get(1));
+            }
+        }
+    }
+
+    private static void setLimitedList(boolean bLimitedList, UploadHistoryInOut uploadHistoryInOut) {
+        if (bLimitedList) {
+            uploadHistoryInOut.setLimitedList("1");
+        } else {
+            uploadHistoryInOut.setLimitedList("0");
+        }
+    }
+
+
+}
+ 
